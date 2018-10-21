@@ -117,7 +117,7 @@ bool RendererVulkan::PickPhysicalDevice() {
     std::vector<vk::PhysicalDevice> devices(device_count);
     instance.enumeratePhysicalDevices(&device_count, devices.data());
 
-    s32 device_index = Settings::values.vulkan_device;
+    const s32 device_index = Settings::values.vulkan_device;
     if (device_index < 0 || device_index >= static_cast<s32>(device_count)) {
         LOG_ERROR(Render_Vulkan, "Invalid device index {}!", device_index);
         return false;
