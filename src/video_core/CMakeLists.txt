@@ -74,6 +74,8 @@ if (Vulkan_FOUND)
         renderer_vulkan/renderer_vulkan.h
         renderer_vulkan/vk_rasterizer.cpp
         renderer_vulkan/vk_rasterizer.h
+        renderer_vulkan/vk_resource_manager.cpp
+        renderer_vulkan/vk_resource_manager.h
         renderer_vulkan/vk_swapchain.cpp
         renderer_vulkan/vk_swapchain.h
         renderer_vulkan/vk_sync.cpp

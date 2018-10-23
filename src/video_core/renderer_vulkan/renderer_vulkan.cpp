@@ -18,6 +18,7 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_helper.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 #include "video_core/utils.h"
@@ -38,15 +39,14 @@ void RendererVulkan::SwapBuffers(
     const auto& layout = render_window.GetFramebufferLayout();
     if (framebuffer && layout.width > 0 && layout.height > 0 && render_window.IsShown()) {
         if (swapchain->HasFramebufferChanged(layout)) {
-            sync->DestroyCommandBuffers();
             swapchain->Create(layout.width, layout.height);
         }
 
         const u32 image_index = swapchain->AcquireNextImage(present_semaphore);
-        DrawScreen(*framebuffer, image_index);
+        VulkanFence& fence = DrawScreen(*framebuffer, image_index);
 
-        vk::Semaphore render_semaphore = sync->QuerySemaphore();
-        swapchain->QueuePresent(present_queue, image_index, present_semaphore, render_semaphore);
+        const vk::Semaphore render_semaphore = sync->QuerySemaphore();
+        swapchain->Present(present_queue, image_index, present_semaphore, render_semaphore, fence);
 
         render_window.SwapBuffers();
     }
@@ -65,9 +65,9 @@ bool RendererVulkan::Init() {
 void RendererVulkan::ShutDown() {
     device.waitIdle();
 
-    // Always destroy sync before swapchain because sync will countain fences used by swapchain.
     sync.reset();
     swapchain.reset();
+    resource_manager.reset();
 
     device.destroy(screen_info.staging_image);
     device.free(screen_info.staging_memory);
@@ -97,7 +97,10 @@ bool RendererVulkan::InitVulkanObjects() {
                                                   graphics_family_index, present_family_index);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    sync = std::make_unique<VulkanSync>(device, graphics_queue, graphics_family_index);
+    resource_manager = std::make_unique<VulkanResourceManager>(device, graphics_family_index);
+
+    sync = std::make_unique<VulkanSync>(*resource_manager, device, graphics_queue,
+                                        graphics_family_index);
 
     if (device.createSemaphore(&vk::SemaphoreCreateInfo(), nullptr, &present_semaphore) !=
         vk::Result::eSuccess) {
@@ -196,14 +199,15 @@ std::vector<vk::DeviceQueueCreateInfo> RendererVulkan::GetDeviceQueueCreateInfos
     return queue_cis;
 }
 
-void RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32 image_index) {
+VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer,
+                                        u32 image_index) {
     const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
     const vk::Extent2D& framebuffer_size{swapchain->GetSize()};
 
     if (rasterizer->AccelerateDisplay(framebuffer, framebuffer_addr, framebuffer.stride)) {
-        return;
+        UNREACHABLE();
     }
 
     const bool recreate{!screen_info.staging_image || framebuffer.width != screen_info.width ||
@@ -255,6 +259,7 @@ void RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32
     device.unmapMemory(screen_info.staging_memory);
 
     // Record blitting
+    VulkanFence& fence = sync->PrepareExecute(false);
     vk::CommandBuffer cmdbuf{sync->BeginRecord()};
 
     if (recreate) {
@@ -272,7 +277,7 @@ void RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32
         framebuffer.transform_flags == Tegra::FramebufferConfig::TransformFlags::FlipV;
     const s32 y0 = flip_y ? static_cast<s32>(framebuffer_size.height) : 0;
     const s32 y1 = flip_y ? 0 : static_cast<s32>(framebuffer_size.height);
-    vk::ImageSubresourceLayers subresource(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
+    const vk::ImageSubresourceLayers subresource(vk::ImageAspectFlagBits::eColor, 0, 0, 1);
     std::array<vk::Offset3D, 2> src_offsets, dst_offsets;
     src_offsets[0] = {0, 0, 0};
     src_offsets[1] = {static_cast<s32>(screen_info.width), static_cast<s32>(screen_info.height), 1};
@@ -289,7 +294,9 @@ void RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32
                    vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer);
 
     sync->EndRecord(cmdbuf);
-    sync->Execute(swapchain->GetFence(image_index));
+    sync->Execute();
+
+    return fence;
 }
 
 } // namespace Vulkan

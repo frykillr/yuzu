@@ -9,13 +9,14 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "video_core/renderer_base.h"
+#include "video_core/renderer_vulkan/vk_helper.h"
 
 namespace Vulkan {
 
-constexpr auto UndefinedSize = std::numeric_limits<u32>::max();
-constexpr auto UndefinedFamily = std::numeric_limits<u32>::max();
-
-constexpr auto WaitTimeout = std::numeric_limits<u64>::max();
+class VulkanSwapchain;
+class VulkanSync;
+class VulkanResourceManager;
+class VulkanFence;
 
 class VulkanSwapchain;
 class VulkanSync;
@@ -54,7 +55,7 @@ private:
     std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos(
         const float* queue_priority) const;
 
-    void DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32 image_index);
+    VulkanFence& DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32 image_index);
 
     vk::Instance instance;
     vk::SurfaceKHR surface;
@@ -71,7 +72,7 @@ private:
     VulkanScreenInfo screen_info{};
 
     std::unique_ptr<VulkanSwapchain> swapchain;
-
+    std::unique_ptr<VulkanResourceManager> resource_manager;
     std::unique_ptr<VulkanSync> sync;
 
     vk::Semaphore present_semaphore;

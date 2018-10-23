@@ -9,6 +9,7 @@
 #include "core/core.h"
 #include "core/frontend/framebuffer_layout.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 
 namespace Vulkan {
@@ -71,7 +72,8 @@ void VulkanSwapchain::Create(u32 width, u32 height) {
     CreateImageViews();
     CreateRenderPass();
     CreateFramebuffers();
-    CreateFences();
+
+    fences.resize(image_count, nullptr);
 }
 
 u32 VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
@@ -86,15 +88,17 @@ u32 VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
         LOG_CRITICAL(Render_Vulkan, "Failed to acquire swapchain image!");
         UNREACHABLE();
     }
-    device.waitForFences(1, &fences[image_index].get(), false, WaitTimeout);
-    device.resetFences(1, &fences[image_index].get());
+    if (VulkanFence* fence = fences[image_index]; fence) {
+        fence->Wait();
+        fence->Release();
+        fences[image_index] = nullptr;
+    }
 
     return image_index;
 }
 
-void VulkanSwapchain::QueuePresent(vk::Queue queue, u32 image_index,
-                                   vk::Semaphore present_semaphore,
-                                   vk::Semaphore render_semaphore) {
+void VulkanSwapchain::Present(vk::Queue queue, u32 image_index, vk::Semaphore present_semaphore,
+                              vk::Semaphore render_semaphore, VulkanFence& fence) {
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
 
@@ -113,6 +117,9 @@ void VulkanSwapchain::QueuePresent(vk::Queue queue, u32 image_index,
         LOG_CRITICAL(Render_Vulkan, "Vulkan failed to present swapchain!");
         UNREACHABLE();
     }
+
+    ASSERT(fences[image_index] == nullptr);
+    fences[image_index] = &fence;
 }
 
 bool VulkanSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const {
@@ -126,10 +133,6 @@ const vk::Extent2D& VulkanSwapchain::GetSize() const {
 
 const vk::Image& VulkanSwapchain::GetImage(std::size_t image_index) const {
     return images[image_index];
-}
-
-const vk::Fence& VulkanSwapchain::GetFence(std::size_t image_index) const {
-    return *fences[image_index];
 }
 
 const vk::RenderPass& VulkanSwapchain::GetRenderPass() const {
@@ -219,16 +222,7 @@ void VulkanSwapchain::CreateFramebuffers() {
     }
 }
 
-void VulkanSwapchain::CreateFences() {
-    fences.resize(image_count);
-    for (u32 i = 0; i < image_count; i++) {
-        const vk::FenceCreateInfo fence_ci(vk::FenceCreateFlagBits::eSignaled);
-        fences[i] = device.createFenceUnique(fence_ci);
-    }
-}
-
 void VulkanSwapchain::Destroy() {
-    fences.clear();
     framebuffers.clear();
     renderpass.reset();
     image_views.clear();

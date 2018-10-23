@@ -11,47 +11,39 @@
 
 namespace Vulkan {
 
+class VulkanResourceManager;
+class VulkanFence;
+
 class VulkanSync {
 public:
-    explicit VulkanSync(vk::Device& device, vk::Queue& queue, const u32& queue_family_index);
+    explicit VulkanSync(VulkanResourceManager& resource_manager, vk::Device& device,
+                        vk::Queue& queue, const u32& queue_family_index);
     ~VulkanSync();
 
-    /**
-     * Adds a command to execution queue.
-     * Passing a null handle for pool means that the command buffer has to be externally freed.
-     */
-    void AddCommand(vk::CommandBuffer cmdbuf, vk::CommandPool pool = vk::CommandPool(nullptr));
+    VulkanFence& PrepareExecute(bool take_fence_ownership = true);
+
+    void Execute();
 
     vk::CommandBuffer BeginRecord();
 
     void EndRecord(vk::CommandBuffer cmdbuf);
 
-    void Execute(vk::Fence fence = vk::Fence(nullptr));
-
     vk::Semaphore QuerySemaphore();
-
-    void DestroyCommandBuffers();
-
-    void FreeUnusedMemory();
 
 private:
     struct Call {
-        std::vector<vk::CommandBuffer> commands;
-        std::vector<vk::CommandPool> pools;
-        vk::Fence fence;
-        bool fence_owned;
+        VulkanFence* fence;
         vk::Semaphore semaphore;
+        std::vector<vk::CommandBuffer> commands;
     };
 
-    void CreateFreshCall();
-
+    VulkanResourceManager& resource_manager;
     vk::Device& device;
     vk::Queue& queue;
 
     std::vector<std::unique_ptr<Call>> calls;
     std::unique_ptr<Call> current_call;
-
-    vk::UniqueCommandPool one_shot_pool;
+    bool take_fence_ownership{};
 
     vk::Semaphore wait_semaphore{};
 };

@@ -10,6 +10,11 @@
 
 namespace Vulkan {
 
+constexpr auto UndefinedSize = std::numeric_limits<u32>::max();
+constexpr auto UndefinedFamily = std::numeric_limits<u32>::max();
+
+constexpr auto WaitTimeout = std::numeric_limits<u64>::max();
+
 std::optional<u32> FindMemoryType(vk::PhysicalDevice device, u32 type_filter,
                                   vk::MemoryPropertyFlags properties);
 

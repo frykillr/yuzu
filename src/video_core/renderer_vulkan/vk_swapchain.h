@@ -15,6 +15,8 @@ struct FramebufferLayout;
 
 namespace Vulkan {
 
+class VulkanFence;
+
 class VulkanSwapchain {
 public:
     explicit VulkanSwapchain(vk::SurfaceKHR& surface, vk::PhysicalDevice& physical_device,
@@ -26,14 +28,13 @@ public:
 
     u32 AcquireNextImage(vk::Semaphore present_complete);
 
-    void QueuePresent(vk::Queue queue, u32 image_index, vk::Semaphore present_semaphore,
-                      vk::Semaphore render_semaphore);
+    void Present(vk::Queue queue, u32 image_index, vk::Semaphore present_semaphore,
+                 vk::Semaphore render_semaphore, VulkanFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 
     const vk::Extent2D& GetSize() const;
     const vk::Image& GetImage(std::size_t image_index) const;
-    const vk::Fence& GetFence(std::size_t image_index) const;
     const vk::RenderPass& GetRenderPass() const;
 
 private:
@@ -41,7 +42,6 @@ private:
     void CreateImageViews();
     void CreateRenderPass();
     void CreateFramebuffers();
-    void CreateFences();
 
     void Destroy();
 
@@ -63,7 +63,7 @@ private:
     std::vector<vk::Image> images;
     std::vector<vk::UniqueImageView> image_views;
     std::vector<vk::UniqueFramebuffer> framebuffers;
-    std::vector<vk::UniqueFence> fences;
+    std::vector<VulkanFence*> fences;
 
     vk::UniqueRenderPass renderpass;
 };
