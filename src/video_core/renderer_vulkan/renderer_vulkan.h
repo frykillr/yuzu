@@ -63,8 +63,8 @@ private:
     vk::PhysicalDevice physical_device;
     vk::Device device;
 
-    u32 graphics_family_index = UndefinedFamily;
-    u32 present_family_index = UndefinedFamily;
+    u32 graphics_family = UndefinedFamily;
+    u32 present_family = UndefinedFamily;
 
     vk::Queue graphics_queue{};
     vk::Queue present_queue{};

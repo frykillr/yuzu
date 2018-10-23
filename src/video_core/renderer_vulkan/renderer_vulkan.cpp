@@ -93,14 +93,13 @@ bool RendererVulkan::InitVulkanObjects() {
         return false;
     }
     const auto& framebuffer = render_window.GetFramebufferLayout();
-    swapchain = std::make_unique<VulkanSwapchain>(surface, physical_device, device,
-                                                  graphics_family_index, present_family_index);
+    swapchain = std::make_unique<VulkanSwapchain>(surface, physical_device, device, graphics_family,
+                                                  present_family);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    resource_manager = std::make_unique<VulkanResourceManager>(device, graphics_family_index);
+    resource_manager = std::make_unique<VulkanResourceManager>(device, graphics_family);
 
-    sync = std::make_unique<VulkanSync>(*resource_manager, device, graphics_queue,
-                                        graphics_family_index);
+    sync = std::make_unique<VulkanSync>(*resource_manager, device, graphics_queue, graphics_family);
 
     if (device.createSemaphore(&vk::SemaphoreCreateInfo(), nullptr, &present_semaphore) !=
         vk::Result::eSuccess) {
@@ -138,16 +137,16 @@ bool RendererVulkan::PickPhysicalDevice() {
     for (const auto& queue_family : queue_families) {
         if (queue_family.queueCount > 0) {
             if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics) {
-                graphics_family_index = i;
+                graphics_family = i;
             }
             if (physical_device.getSurfaceSupportKHR(i, surface)) {
-                present_family_index = i;
+                present_family = i;
             }
         }
         i++;
     }
 
-    if (graphics_family_index == UndefinedFamily || present_family_index == UndefinedFamily) {
+    if (graphics_family == UndefinedFamily || present_family == UndefinedFamily) {
         LOG_ERROR(Render_Vulkan, "Device has not enough queues!");
         return false;
     }
@@ -173,8 +172,8 @@ bool RendererVulkan::CreateLogicalDevice() {
         return false;
     }
 
-    graphics_queue = device.getQueue(graphics_family_index, 0);
-    present_queue = device.getQueue(present_family_index, 0);
+    graphics_queue = device.getQueue(graphics_family, 0);
+    present_queue = device.getQueue(present_family, 0);
     return true;
 }
 
@@ -186,7 +185,7 @@ bool RendererVulkan::IsDeviceSuitable(vk::PhysicalDevice physical_device) const 
 std::vector<vk::DeviceQueueCreateInfo> RendererVulkan::GetDeviceQueueCreateInfos(
     const float* queue_priority) const {
     std::vector<vk::DeviceQueueCreateInfo> queue_cis;
-    std::set<u32> unique_queue_families = {graphics_family_index, present_family_index};
+    std::set<u32> unique_queue_families = {graphics_family, present_family};
 
     for (u32 queue_family : unique_queue_families) {
         VkDeviceQueueCreateInfo queue_ci{};
