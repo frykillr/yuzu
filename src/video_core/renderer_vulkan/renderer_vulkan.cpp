@@ -42,11 +42,11 @@ void RendererVulkan::SwapBuffers(
             swapchain->Create(layout.width, layout.height);
         }
 
-        const u32 image_index = swapchain->AcquireNextImage(present_semaphore);
-        VulkanFence& fence = DrawScreen(*framebuffer, image_index);
+        swapchain->AcquireNextImage(present_semaphore);
+        VulkanFence& fence = DrawScreen(*framebuffer);
 
         const vk::Semaphore render_semaphore = sync->QuerySemaphore();
-        swapchain->Present(present_queue, image_index, present_semaphore, render_semaphore, fence);
+        swapchain->Present(present_queue, present_semaphore, render_semaphore, fence);
 
         render_window.SwapBuffers();
     }
@@ -198,8 +198,7 @@ std::vector<vk::DeviceQueueCreateInfo> RendererVulkan::GetDeviceQueueCreateInfos
     return queue_cis;
 }
 
-VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer,
-                                        u32 image_index) {
+VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer) {
     const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
@@ -267,7 +266,7 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
                        vk::PipelineStageFlagBits::eHost,
                        vk::PipelineStageFlagBits::eHost | vk::PipelineStageFlagBits::eTransfer);
     }
-    SetImageLayout(cmdbuf, swapchain->GetImage(image_index), vk::ImageAspectFlagBits::eColor,
+    SetImageLayout(cmdbuf, swapchain->GetImage(), vk::ImageAspectFlagBits::eColor,
                    vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
                    vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer);
 
@@ -284,11 +283,10 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
     dst_offsets[1] = {static_cast<s32>(framebuffer_size.width), y1, 1};
     const vk::ImageBlit blit(subresource, src_offsets, subresource, dst_offsets);
 
-    cmdbuf.blitImage(screen_info.staging_image, vk::ImageLayout::eGeneral,
-                     swapchain->GetImage(image_index), vk::ImageLayout::eTransferDstOptimal, {blit},
-                     vk::Filter::eLinear);
+    cmdbuf.blitImage(screen_info.staging_image, vk::ImageLayout::eGeneral, swapchain->GetImage(),
+                     vk::ImageLayout::eTransferDstOptimal, {blit}, vk::Filter::eLinear);
 
-    SetImageLayout(cmdbuf, swapchain->GetImage(image_index), vk::ImageAspectFlagBits::eColor,
+    SetImageLayout(cmdbuf, swapchain->GetImage(), vk::ImageAspectFlagBits::eColor,
                    vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::ePresentSrcKHR,
                    vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer);
 

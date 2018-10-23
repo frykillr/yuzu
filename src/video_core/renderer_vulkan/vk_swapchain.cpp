@@ -76,28 +76,17 @@ void VulkanSwapchain::Create(u32 width, u32 height) {
     fences.resize(image_count, nullptr);
 }
 
-u32 VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
-    u32 image_index{};
-    vk::Result result{
-        device.acquireNextImageKHR(*handle, WaitTimeout, present_complete, {}, &image_index)};
-    if (result == vk::Result::eErrorOutOfDateKHR) {
-        if (current_width > 0 && current_height > 0) {
-            Create(current_width, current_height);
-        }
-    } else if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
-        LOG_CRITICAL(Render_Vulkan, "Failed to acquire swapchain image!");
-        UNREACHABLE();
-    }
-    if (VulkanFence* fence = fences[image_index]; fence) {
+void VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
+    device.acquireNextImageKHR(*handle, WaitTimeout, present_complete, {}, &image_index);
+
+    if (auto& fence = fences[image_index]; fence) {
         fence->Wait();
         fence->Release();
-        fences[image_index] = nullptr;
+        fence = nullptr;
     }
-
-    return image_index;
 }
 
-void VulkanSwapchain::Present(vk::Queue queue, u32 image_index, vk::Semaphore present_semaphore,
+void VulkanSwapchain::Present(vk::Queue queue, vk::Semaphore present_semaphore,
                               vk::Semaphore render_semaphore, VulkanFence& fence) {
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
@@ -131,7 +120,7 @@ const vk::Extent2D& VulkanSwapchain::GetSize() const {
     return extent;
 }
 
-const vk::Image& VulkanSwapchain::GetImage(std::size_t image_index) const {
+const vk::Image& VulkanSwapchain::GetImage() const {
     return images[image_index];
 }
 

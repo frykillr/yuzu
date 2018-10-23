@@ -55,7 +55,7 @@ private:
     std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos(
         const float* queue_priority) const;
 
-    VulkanFence& DrawScreen(const Tegra::FramebufferConfig& framebuffer, u32 image_index);
+    VulkanFence& DrawScreen(const Tegra::FramebufferConfig& framebuffer);
 
     vk::Instance instance;
     vk::SurfaceKHR surface;

@@ -26,15 +26,15 @@ public:
 
     void Create(u32 width, u32 height);
 
-    u32 AcquireNextImage(vk::Semaphore present_complete);
+    void AcquireNextImage(vk::Semaphore present_complete);
 
-    void Present(vk::Queue queue, u32 image_index, vk::Semaphore present_semaphore,
-                 vk::Semaphore render_semaphore, VulkanFence& fence);
+    void Present(vk::Queue queue, vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
+                 VulkanFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 
     const vk::Extent2D& GetSize() const;
-    const vk::Image& GetImage(std::size_t image_index) const;
+    const vk::Image& GetImage() const;
     const vk::RenderPass& GetRenderPass() const;
 
 private:
@@ -58,6 +58,8 @@ private:
 
     vk::Format image_format{};
     vk::Extent2D extent{};
+
+    u32 image_index{};
 
     u32 image_count{};
     std::vector<vk::Image> images;
