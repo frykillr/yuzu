@@ -13,8 +13,10 @@
 
 namespace Vulkan {
 
+class VulkanMemoryCommit;
 class VulkanDevice;
 class VulkanFence;
+class VulkanMemoryManager;
 class VulkanResourceManager;
 class VulkanSwapchain;
 class VulkanSync;
@@ -27,7 +29,7 @@ struct VulkanScreenInfo {
     u32 height{};
     u64 size_in_bytes{};
     vk::Image staging_image;
-    vk::DeviceMemory staging_memory;
+    const VulkanMemoryCommit* staging_memory;
 };
 
 class RendererVulkan : public VideoCore::RendererBase {
@@ -62,6 +64,7 @@ private:
     vk::PhysicalDevice physical_device;
 
     std::unique_ptr<VulkanSwapchain> swapchain;
+    std::unique_ptr<VulkanMemoryManager> memory_manager;
     std::unique_ptr<VulkanResourceManager> resource_manager;
     std::unique_ptr<VulkanSync> sync;
 

@@ -27,6 +27,9 @@ VulkanDevice::VulkanDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, 
         }
     }
     ASSERT(graphics_family != UndefinedFamily && present_family != UndefinedFamily);
+
+    const vk::PhysicalDeviceProperties props = physical.getProperties();
+    device_type = props.deviceType;
 }
 
 VulkanDevice::~VulkanDevice() {
@@ -56,8 +59,6 @@ bool VulkanDevice::CreateLogical() {
     present_queue = logical.getQueue(present_family, 0);
     return true;
 }
-
-#pragma optimize("", off)
 
 bool VulkanDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface,
                               bool is_renderer) {

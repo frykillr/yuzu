@@ -18,6 +18,7 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_helper.h"
+#include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
@@ -70,12 +71,12 @@ void RendererVulkan::ShutDown() {
 
     device.waitIdle();
 
+    device.destroy(screen_info.staging_image);
+
     sync.reset();
     swapchain.reset();
     resource_manager.reset();
-
-    device.destroy(screen_info.staging_image);
-    device.free(screen_info.staging_memory);
+    memory_manager.reset();
 
     device.destroy(present_semaphore);
     device_handler.reset();
@@ -98,11 +99,13 @@ bool RendererVulkan::InitVulkanObjects() {
     device = device_handler->GetLogical();
     physical_device = device_handler->GetPhysical();
 
+    memory_manager = std::make_unique<VulkanMemoryManager>(*device_handler);
+
+    resource_manager = std::make_unique<VulkanResourceManager>(*device_handler);
+
     const auto& framebuffer = render_window.GetFramebufferLayout();
     swapchain = std::make_unique<VulkanSwapchain>(surface, *device_handler);
     swapchain->Create(framebuffer.width, framebuffer.height);
-
-    resource_manager = std::make_unique<VulkanResourceManager>(*device_handler);
 
     sync = std::make_unique<VulkanSync>(*resource_manager, *device_handler);
 
@@ -150,10 +153,10 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
         if (screen_info.staging_image || screen_info.staging_memory) {
             ASSERT(screen_info.staging_image && screen_info.staging_memory);
 
-            // Wait to avoid using staging memory while it's being transfered
+            // Wait to avoid using staging memory while it's being transfered.
             device.waitIdle();
             device.destroy(screen_info.staging_image);
-            device.free(screen_info.staging_memory);
+            memory_manager->Free(screen_info.staging_memory);
         }
 
         const vk::ImageCreateInfo image_ci(
@@ -166,17 +169,10 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
         const vk::MemoryRequirements mem_reqs =
             device.getImageMemoryRequirements(screen_info.staging_image);
 
-        const auto memory_type = FindMemoryType(physical_device, mem_reqs.memoryTypeBits,
-                                                vk::MemoryPropertyFlagBits::eHostVisible |
-                                                    vk::MemoryPropertyFlagBits::eHostCoherent);
-        if (!memory_type) {
-            LOG_CRITICAL(Render_Vulkan, "Couldn't find a suitable memory type!");
-            UNREACHABLE();
-        }
-        // TODO(Rodrigo): Use a memory allocator
-        screen_info.staging_memory = device.allocateMemory({mem_reqs.size, *memory_type});
+        screen_info.staging_memory = memory_manager->Alloc(mem_reqs, true);
 
-        device.bindImageMemory(screen_info.staging_image, screen_info.staging_memory, 0);
+        device.bindImageMemory(screen_info.staging_image, screen_info.staging_memory->GetMemory(),
+                               screen_info.staging_memory->GetOffset());
 
         screen_info.width = framebuffer.width;
         screen_info.height = framebuffer.height;
@@ -185,12 +181,10 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
 
     Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes, Memory::FlushMode::Flush);
 
-    void* data = device.mapMemory(screen_info.staging_memory, 0, screen_info.size_in_bytes, {});
+    u8* data = screen_info.staging_memory->GetData();
 
     VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
-                                   Memory::GetPointer(framebuffer_addr), static_cast<u8*>(data),
-                                   true);
-    device.unmapMemory(screen_info.staging_memory);
+                                   Memory::GetPointer(framebuffer_addr), data, true);
 
     // Record blitting
     VulkanFence& fence = sync->PrepareExecute(false);

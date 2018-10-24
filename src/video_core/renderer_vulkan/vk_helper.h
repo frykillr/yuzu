@@ -15,9 +15,6 @@ constexpr auto UndefinedFamily = std::numeric_limits<u32>::max();
 
 constexpr auto WaitTimeout = std::numeric_limits<u64>::max();
 
-std::optional<u32> FindMemoryType(vk::PhysicalDevice device, u32 type_filter,
-                                  vk::MemoryPropertyFlags properties);
-
 void SetImageLayout(vk::CommandBuffer cmdbuf, vk::Image image, vk::ImageLayout old_image_layout,
                     vk::ImageLayout new_image_layout, vk::ImageSubresourceRange subresource_range,
                     vk::PipelineStageFlags src_stage_mask, vk::PipelineStageFlags dst_stage_mask,

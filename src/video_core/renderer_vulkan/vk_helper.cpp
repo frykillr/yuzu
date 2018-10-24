@@ -8,19 +8,6 @@
 
 namespace Vulkan {
 
-std::optional<u32> FindMemoryType(vk::PhysicalDevice device, u32 type_filter,
-                                  vk::MemoryPropertyFlags properties) {
-    vk::PhysicalDeviceMemoryProperties props{device.getMemoryProperties()};
-    for (u32 i = 0; i < props.memoryTypeCount; i++) {
-        if ((type_filter & (1 << i)) &&
-            (props.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    // Couldn't find a suitable memory type
-    return {};
-}
-
 void SetImageLayout(vk::CommandBuffer cmdbuf, vk::Image image, vk::ImageLayout old_image_layout,
                     vk::ImageLayout new_image_layout, vk::ImageSubresourceRange subresource_range,
                     vk::PipelineStageFlags src_stage_mask, vk::PipelineStageFlags dst_stage_mask,

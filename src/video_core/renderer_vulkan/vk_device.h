@@ -46,17 +46,23 @@ public:
         return present_family;
     }
 
+    bool IsIntegrated() const {
+        return device_type == vk::PhysicalDeviceType::eIntegratedGpu;
+    }
+
     static bool IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
 
 private:
     std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos() const;
 
     vk::PhysicalDevice physical;
-    vk::Device logical;
-    vk::Queue graphics_queue;
-    vk::Queue present_queue;
+    vk::Device logical{};
+    vk::Queue graphics_queue{};
+    vk::Queue present_queue{};
     u32 graphics_family = UndefinedFamily;
     u32 present_family = UndefinedFamily;
+    vk::PhysicalDeviceType device_type{};
+
     bool is_renderer;
 };
 
