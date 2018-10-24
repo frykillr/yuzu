@@ -6,6 +6,7 @@
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
@@ -16,7 +17,7 @@ constexpr u32 COMMAND_BUFFERS_COUNT = 0x1000;
 constexpr u32 FENCES_COUNT = 0x2000;
 constexpr u32 SEMAPHORES_COUNT = 0x1000;
 
-VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device& device, std::mutex& mutex)
+VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device, std::mutex& mutex)
     : handle(std::move(handle)), device(device), mutex(mutex) {}
 
 VulkanFence::~VulkanFence() = default;
@@ -58,7 +59,7 @@ bool VulkanFence::IsUsed() const {
     return is_used;
 }
 
-VulkanResourceInterface::VulkanResourceInterface(vk::Device& device) : device(device) {}
+VulkanResourceInterface::VulkanResourceInterface(vk::Device device) : device(device) {}
 
 VulkanResourceInterface::~VulkanResourceInterface() = default;
 
@@ -94,8 +95,8 @@ bool VulkanResourceInterface::UnsafeTryCommit(VulkanFence& commit_fence) {
     return true;
 }
 
-VulkanResourceManager::VulkanResourceManager(vk::Device& device, const u32& graphics_family)
-    : device(device), graphics_family(graphics_family) {
+VulkanResourceManager::VulkanResourceManager(const VulkanDevice& device_handler)
+    : device(device_handler.GetLogical()), graphics_family(device_handler.GetGraphicsFamily()) {
     CreateFences();
     CreateCommands();
     CreateSemaphores();
@@ -127,6 +128,7 @@ VulkanFence& VulkanResourceManager::CommitFence() {
         fence->Commit();
         return *fence;
     }
+
     // Try again, this time waiting for a non owned fence to be signaled.
     it = std::find_if(fences.begin(), fences.end(), [&](auto& fence) {
         if (fence->IsOwned()) {
@@ -142,6 +144,7 @@ VulkanFence& VulkanResourceManager::CommitFence() {
         fence->Commit();
         return *fence;
     }
+
     // All fences are owned. Panic.
     // TODO(Rodrigo): Allocate more fences
     UNREACHABLE_MSG("Reached fence limit.");

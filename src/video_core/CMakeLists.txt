@@ -72,6 +72,8 @@ if (Vulkan_FOUND)
     target_sources(video_core PRIVATE
         renderer_vulkan/renderer_vulkan.cpp
         renderer_vulkan/renderer_vulkan.h
+        renderer_vulkan/vk_device.cpp
+        renderer_vulkan/vk_device.h
         renderer_vulkan/vk_rasterizer.cpp
         renderer_vulkan/vk_rasterizer.h
         renderer_vulkan/vk_resource_manager.cpp

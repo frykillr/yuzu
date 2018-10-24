@@ -12,6 +12,7 @@
 
 namespace Vulkan {
 
+class VulkanDevice;
 class VulkanFence;
 class VulkanResourceManager;
 
@@ -19,7 +20,7 @@ class VulkanResourceInterface {
     friend class VulkanFence;
 
 public:
-    explicit VulkanResourceInterface(vk::Device& device);
+    explicit VulkanResourceInterface(vk::Device device);
     ~VulkanResourceInterface();
 
     /**
@@ -47,7 +48,8 @@ private:
     /// Backend for TryCommit and Commit, thread unsafe
     bool UnsafeTryCommit(VulkanFence& commit_fence);
 
-    vk::Device& device;
+    const vk::Device device;
+
     VulkanFence* fence{};
     bool is_claimed{};
     std::mutex mutex;
@@ -56,7 +58,7 @@ private:
 template <typename T>
 class VulkanResourceEntry final : public VulkanResourceInterface {
 public:
-    VulkanResourceEntry(T resource, vk::Device& device)
+    VulkanResourceEntry(T resource, vk::Device device)
         : VulkanResourceInterface(device), resource(std::move(resource)) {}
     ~VulkanResourceEntry() = default;
 
@@ -74,7 +76,7 @@ class VulkanFence {
     friend class VulkanResourceManager;
 
 public:
-    explicit VulkanFence(vk::UniqueFence handle, vk::Device& device, std::mutex& mutex);
+    explicit VulkanFence(vk::UniqueFence handle, vk::Device device, std::mutex& mutex);
     ~VulkanFence();
 
     /**
@@ -123,7 +125,7 @@ private:
 
 class VulkanResourceManager final {
 public:
-    explicit VulkanResourceManager(vk::Device& device, const u32& graphics_family);
+    explicit VulkanResourceManager(const VulkanDevice& device_handler);
     ~VulkanResourceManager();
 
     VulkanFence& CommitFence();
@@ -143,8 +145,8 @@ private:
     void CreateCommands();
     void CreateSemaphores();
 
-    vk::Device& device;
-    const u32& graphics_family;
+    const vk::Device device;
+    const u32 graphics_family;
 
     std::mutex fences_mutex;
     std::vector<std::unique_ptr<VulkanFence>> fences;

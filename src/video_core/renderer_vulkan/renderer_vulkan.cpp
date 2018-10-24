@@ -16,6 +16,7 @@
 #include "core/perf_stats.h"
 #include "core/settings.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
+#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_helper.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
@@ -46,7 +47,7 @@ void RendererVulkan::SwapBuffers(
         VulkanFence& fence = DrawScreen(*framebuffer);
 
         const vk::Semaphore render_semaphore = sync->QuerySemaphore();
-        swapchain->Present(present_queue, present_semaphore, render_semaphore, fence);
+        swapchain->Present(present_semaphore, render_semaphore, fence);
 
         render_window.SwapBuffers();
     }
@@ -63,6 +64,10 @@ bool RendererVulkan::Init() {
 }
 
 void RendererVulkan::ShutDown() {
+    if (!device_handler) {
+        return;
+    }
+
     device.waitIdle();
 
     sync.reset();
@@ -73,7 +78,7 @@ void RendererVulkan::ShutDown() {
     device.free(screen_info.staging_memory);
 
     device.destroy(present_semaphore);
-    device.destroy();
+    device_handler.reset();
 }
 
 void RendererVulkan::CreateRasterizer() {
@@ -86,20 +91,20 @@ void RendererVulkan::CreateRasterizer() {
 bool RendererVulkan::InitVulkanObjects() {
     render_window.RetrieveVulkanHandlers(reinterpret_cast<void**>(&instance),
                                          reinterpret_cast<void**>(&surface));
-    if (!PickPhysicalDevice()) {
+
+    if (!PickDevices()) {
         return false;
     }
-    if (!CreateLogicalDevice()) {
-        return false;
-    }
+    device = device_handler->GetLogical();
+    physical_device = device_handler->GetPhysical();
+
     const auto& framebuffer = render_window.GetFramebufferLayout();
-    swapchain = std::make_unique<VulkanSwapchain>(surface, physical_device, device, graphics_family,
-                                                  present_family);
+    swapchain = std::make_unique<VulkanSwapchain>(surface, *device_handler);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    resource_manager = std::make_unique<VulkanResourceManager>(device, graphics_family);
+    resource_manager = std::make_unique<VulkanResourceManager>(*device_handler);
 
-    sync = std::make_unique<VulkanSync>(*resource_manager, device, graphics_queue, graphics_family);
+    sync = std::make_unique<VulkanSync>(*resource_manager, *device_handler);
 
     if (device.createSemaphore(&vk::SemaphoreCreateInfo(), nullptr, &present_semaphore) !=
         vk::Result::eSuccess) {
@@ -109,93 +114,24 @@ bool RendererVulkan::InitVulkanObjects() {
     return true;
 }
 
-bool RendererVulkan::PickPhysicalDevice() {
-    u32 device_count{};
-    if (instance.enumeratePhysicalDevices(&device_count, nullptr) != vk::Result::eSuccess ||
-        device_count == 0) {
-        LOG_ERROR(Render_Vulkan, "No Vulkan devices found!");
-        return false;
-    }
-    std::vector<vk::PhysicalDevice> devices(device_count);
-    instance.enumeratePhysicalDevices(&device_count, devices.data());
+bool RendererVulkan::PickDevices() {
+    const auto devices = instance.enumeratePhysicalDevices();
 
+    // TODO(Rodrigo): Choose device from config file
     const s32 device_index = Settings::values.vulkan_device;
-    if (device_index < 0 || device_index >= static_cast<s32>(device_count)) {
+    if (device_index < 0 || device_index >= static_cast<s32>(devices.size())) {
         LOG_ERROR(Render_Vulkan, "Invalid device index {}!", device_index);
         return false;
     }
     physical_device = devices[device_index];
 
-    if (!IsDeviceSuitable(physical_device)) {
-        LOG_ERROR(Render_Vulkan, "Device {} is not suitable!", device_index);
+    if (!VulkanDevice::IsSuitable(physical_device, surface, true)) {
+        LOG_ERROR(Render_Vulkan, "Device is not suitable!");
         return false;
     }
 
-    std::vector<vk::QueueFamilyProperties> queue_families{
-        physical_device.getQueueFamilyProperties()};
-    int i{};
-    for (const auto& queue_family : queue_families) {
-        if (queue_family.queueCount > 0) {
-            if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics) {
-                graphics_family = i;
-            }
-            if (physical_device.getSurfaceSupportKHR(i, surface)) {
-                present_family = i;
-            }
-        }
-        i++;
-    }
-
-    if (graphics_family == UndefinedFamily || present_family == UndefinedFamily) {
-        LOG_ERROR(Render_Vulkan, "Device has not enough queues!");
-        return false;
-    }
-
-    LOG_INFO(Render_Vulkan, "{}", physical_device.getProperties().deviceName);
-    return true;
-}
-
-bool RendererVulkan::CreateLogicalDevice() {
-    const float queue_priorities{1.f};
-    std::vector<vk::DeviceQueueCreateInfo> queue_cis{GetDeviceQueueCreateInfos(&queue_priorities)};
-
-    vk::PhysicalDeviceFeatures device_features{};
-
-    std::vector<const char*> extensions{};
-    extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-
-    vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(), 0,
-                                   nullptr, static_cast<u32>(extensions.size()), extensions.data(),
-                                   &device_features);
-    if (physical_device.createDevice(&device_ci, nullptr, &device) != vk::Result::eSuccess) {
-        LOG_CRITICAL(Render_Vulkan, "Device failed to be created!");
-        return false;
-    }
-
-    graphics_queue = device.getQueue(graphics_family, 0);
-    present_queue = device.getQueue(present_family, 0);
-    return true;
-}
-
-bool RendererVulkan::IsDeviceSuitable(vk::PhysicalDevice physical_device) const {
-    // TODO(Rodrigo): Query suitability before creating logical device
-    return true;
-}
-
-std::vector<vk::DeviceQueueCreateInfo> RendererVulkan::GetDeviceQueueCreateInfos(
-    const float* queue_priority) const {
-    std::vector<vk::DeviceQueueCreateInfo> queue_cis;
-    std::set<u32> unique_queue_families = {graphics_family, present_family};
-
-    for (u32 queue_family : unique_queue_families) {
-        VkDeviceQueueCreateInfo queue_ci{};
-        queue_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_ci.queueFamilyIndex = queue_family;
-        queue_ci.queueCount = 1;
-        queue_ci.pQueuePriorities = queue_priority;
-        queue_cis.push_back(queue_ci);
-    }
-    return queue_cis;
+    device_handler = std::make_unique<VulkanDevice>(physical_device, surface, true);
+    return device_handler->CreateLogical();
 }
 
 VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuffer) {
@@ -227,8 +163,8 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::ePreinitialized);
         screen_info.staging_image = device.createImage(image_ci);
 
-        vk::MemoryRequirements mem_reqs{
-            device.getImageMemoryRequirements(screen_info.staging_image)};
+        const vk::MemoryRequirements mem_reqs =
+            device.getImageMemoryRequirements(screen_info.staging_image);
 
         const auto memory_type = FindMemoryType(physical_device, mem_reqs.memoryTypeBits,
                                                 vk::MemoryPropertyFlagBits::eHostVisible |

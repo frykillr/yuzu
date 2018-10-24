@@ -11,13 +11,13 @@
 
 namespace Vulkan {
 
-class VulkanResourceManager;
+class VulkanDevice;
 class VulkanFence;
+class VulkanResourceManager;
 
 class VulkanSync {
 public:
-    explicit VulkanSync(VulkanResourceManager& resource_manager, vk::Device& device,
-                        vk::Queue& queue, const u32& queue_family_index);
+    explicit VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevice& device_handler);
     ~VulkanSync();
 
     VulkanFence& PrepareExecute(bool take_fence_ownership = true);
@@ -38,8 +38,8 @@ private:
     };
 
     VulkanResourceManager& resource_manager;
-    vk::Device& device;
-    vk::Queue& queue;
+    const vk::Device device;
+    const vk::Queue queue;
 
     std::vector<std::unique_ptr<Call>> calls;
     std::unique_ptr<Call> current_call;

@@ -15,20 +15,19 @@ struct FramebufferLayout;
 
 namespace Vulkan {
 
+class VulkanDevice;
 class VulkanFence;
 
 class VulkanSwapchain {
 public:
-    explicit VulkanSwapchain(vk::SurfaceKHR& surface, vk::PhysicalDevice& physical_device,
-                             vk::Device& device, const u32& graphics_family,
-                             const u32& present_family);
+    explicit VulkanSwapchain(vk::SurfaceKHR surface, const VulkanDevice& device_handler);
     ~VulkanSwapchain();
 
     void Create(u32 width, u32 height);
 
     void AcquireNextImage(vk::Semaphore present_complete);
 
-    void Present(vk::Queue queue, vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
+    void Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
                  VulkanFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
@@ -45,29 +44,29 @@ private:
 
     void Destroy();
 
-    vk::SurfaceKHR& surface;
-    vk::PhysicalDevice& physical_device;
-    vk::Device& device;
-    const u32& graphics_family;
-    const u32& present_family;
+    const vk::SurfaceKHR surface;
+    const vk::Device device;
+    const vk::PhysicalDevice physical_device;
+    const vk::Queue present_queue;
+    const u32 graphics_family;
+    const u32 present_family;
 
     vk::UniqueSwapchainKHR handle;
-
-    u32 current_width{};
-    u32 current_height{};
-
-    vk::Format image_format{};
-    vk::Extent2D extent{};
-
-    u32 image_index{};
 
     u32 image_count{};
     std::vector<vk::Image> images;
     std::vector<vk::UniqueImageView> image_views;
     std::vector<vk::UniqueFramebuffer> framebuffers;
     std::vector<VulkanFence*> fences;
-
     vk::UniqueRenderPass renderpass;
+
+    u32 image_index{};
+
+    vk::Format image_format{};
+    vk::Extent2D extent{};
+
+    u32 current_width{};
+    u32 current_height{};
 };
 
 } // namespace Vulkan

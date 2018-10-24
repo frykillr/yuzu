@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 
@@ -12,9 +13,9 @@ namespace Vulkan {
 
 constexpr u32 CALLS_RESERVE = 128;
 
-VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, vk::Device& device,
-                       vk::Queue& queue, const u32& queue_family_index)
-    : resource_manager(resource_manager), device(device), queue(queue) {
+VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevice& device_handler)
+    : resource_manager(resource_manager), device(device_handler.GetLogical()),
+      queue(device_handler.GetGraphicsQueue()) {
 
     calls.reserve(CALLS_RESERVE);
 }

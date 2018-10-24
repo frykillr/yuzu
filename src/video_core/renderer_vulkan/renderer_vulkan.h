@@ -13,10 +13,11 @@
 
 namespace Vulkan {
 
+class VulkanDevice;
+class VulkanFence;
+class VulkanResourceManager;
 class VulkanSwapchain;
 class VulkanSync;
-class VulkanResourceManager;
-class VulkanFence;
 
 class VulkanSwapchain;
 class VulkanSync;
@@ -47,29 +48,18 @@ public:
 private:
     void CreateRasterizer();
     bool InitVulkanObjects();
-    bool PickPhysicalDevice();
-    bool CreateLogicalDevice();
-
-    bool IsDeviceSuitable(vk::PhysicalDevice physical_device) const;
-
-    std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos(
-        const float* queue_priority) const;
+    bool PickDevices();
 
     VulkanFence& DrawScreen(const Tegra::FramebufferConfig& framebuffer);
 
     vk::Instance instance;
     vk::SurfaceKHR surface;
 
-    vk::PhysicalDevice physical_device;
-    vk::Device device;
-
-    u32 graphics_family = UndefinedFamily;
-    u32 present_family = UndefinedFamily;
-
-    vk::Queue graphics_queue{};
-    vk::Queue present_queue{};
-
     VulkanScreenInfo screen_info{};
+
+    std::unique_ptr<VulkanDevice> device_handler;
+    vk::Device device;
+    vk::PhysicalDevice physical_device;
 
     std::unique_ptr<VulkanSwapchain> swapchain;
     std::unique_ptr<VulkanResourceManager> resource_manager;

@@ -9,6 +9,7 @@
 #include "core/core.h"
 #include "core/frontend/framebuffer_layout.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
+#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 
@@ -48,11 +49,12 @@ static vk::Extent2D ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilit
     return extent;
 }
 
-VulkanSwapchain::VulkanSwapchain(vk::SurfaceKHR& surface, vk::PhysicalDevice& physical_device,
-                                 vk::Device& device, const u32& graphics_family,
-                                 const u32& present_family)
-    : surface(surface), physical_device(physical_device), device(device),
-      graphics_family(graphics_family), present_family(present_family) {}
+VulkanSwapchain::VulkanSwapchain(vk::SurfaceKHR surface, const VulkanDevice& device_handler)
+    : surface(surface), device(device_handler.GetLogical()),
+      physical_device(device_handler.GetPhysical()),
+      present_queue(device_handler.GetPresentQueue()),
+      graphics_family(device_handler.GetGraphicsFamily()),
+      present_family(device_handler.GetPresentFamily()) {}
 
 VulkanSwapchain::~VulkanSwapchain() {
     Destroy();
@@ -86,15 +88,15 @@ void VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
     }
 }
 
-void VulkanSwapchain::Present(vk::Queue queue, vk::Semaphore present_semaphore,
-                              vk::Semaphore render_semaphore, VulkanFence& fence) {
+void VulkanSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
+                              VulkanFence& fence) {
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
 
     const vk::PresentInfoKHR present_info(wait_semaphore_count, semaphores.data(), 1, &handle.get(),
                                           &image_index, {});
 
-    switch (queue.presentKHR(&present_info)) {
+    switch (present_queue.presentKHR(&present_info)) {
     case vk::Result::eErrorOutOfDateKHR:
         if (current_width > 0 && current_height > 0) {
             Create(current_width, current_height);
