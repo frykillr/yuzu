@@ -6,69 +6,98 @@
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
 #include "common/logging/log.h"
-#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
+#include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
 namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune these numbers.
 constexpr u32 COMMAND_BUFFERS_COUNT = 0x1000;
-constexpr u32 FENCES_COUNT = 0x2000;
 constexpr u32 SEMAPHORES_COUNT = 0x1000;
 
-VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device, std::mutex& mutex)
-    : handle(std::move(handle)), device(device), mutex(mutex) {}
+constexpr u32 FENCES_COUNT = 0x2000;
+constexpr u32 FENCES_GROW_STEP = 0x1000;
 
-VulkanFence::~VulkanFence() = default;
+VulkanResource::VulkanResource() = default;
 
-void VulkanFence::Wait() {
-    std::unique_lock lock(mutex);
-    device.waitForFences({*handle}, true, WaitTimeout);
+VulkanResource::~VulkanResource() = default;
+
+VulkanResourcePersistent::VulkanResourcePersistent(VulkanResourceManager& resource_manager,
+                                                   vk::Device device,
+                                                   std::mutex& external_fences_mutex)
+    : VulkanResource(), resource_manager(resource_manager), device(device),
+      external_fences_mutex(external_fences_mutex) {
+
+    const vk::SemaphoreCreateInfo semaphore_ci;
+    write_semaphore = device.createSemaphoreUnique(semaphore_ci);
 }
 
-void VulkanFence::Release() {
-    std::unique_lock lock(mutex);
-    is_owned = false;
+VulkanResourcePersistent::~VulkanResourcePersistent() = default;
+
+vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
+    std::unique_lock ownership_lock(ownership_mutex);
+    std::unique_lock fence_change_lock(fence_change_mutex);
+    std::unique_lock external_fences_lock(external_fences_mutex);
+
+    new_fence.ProtectResource(this);
+    read_fences.push_back(&new_fence);
+
+    return *write_semaphore;
 }
 
-void VulkanFence::Commit() {
-    is_owned = true;
-    is_used = true;
-}
+vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
+    std::unique_lock ownership_lock(ownership_mutex);
+    {
+        // Wait for all fences, we can't write unless all previous operations have finished.
+        // Lock fences to avoid external fence changes while we loop.
+        std::unique_lock external_fences_lock(external_fences_mutex);
 
-void VulkanFence::ProtectResource(VulkanResourceInterface* resource) {
-    protected_resources.push_back(resource);
-}
-
-void VulkanFence::RemoveUsage() {
-    for (auto* resource : protected_resources) {
-        resource->RemoveUsage();
+        // If there's a softlock here you may have forgotten to call Release.
+        for (auto* fence : read_fences) {
+            const bool is_free = fence->Tick(true, true);
+            ASSERT(is_free);
+        }
+        if (write_fence) {
+            const bool is_free = write_fence->Tick(true, true);
+            ASSERT(is_free);
+        }
     }
-    // TODO(Rodrigo): Find a way to preserve vector's allocated memory.
-    protected_resources.clear();
+    // There's a bug if the resource is not free after waiting for all of its fences.
+    ASSERT(read_fences.empty());
+    ASSERT(write_fence == nullptr);
 
-    is_used = false;
+    // Add current the new fence.
+    std::unique_lock lock(fence_change_mutex);
+    new_fence.ProtectResource(this);
+    write_fence = &new_fence;
+
+    return *write_semaphore;
 }
 
-bool VulkanFence::IsOwned() const {
-    return is_owned;
+void VulkanResourcePersistent::RemoveUsage(VulkanFence* signaling_fence) {
+    std::unique_lock lock(fence_change_mutex);
+
+    if (write_fence == signaling_fence) {
+        write_fence = nullptr;
+    }
+    const auto it = std::find(read_fences.begin(), read_fences.end(), signaling_fence);
+    if (it != read_fences.end()) {
+        read_fences.erase(it);
+    }
 }
 
-bool VulkanFence::IsUsed() const {
-    return is_used;
-}
+VulkanResourceTransient::VulkanResourceTransient(vk::Device device)
+    : VulkanResource(), device(device) {}
 
-VulkanResourceInterface::VulkanResourceInterface(vk::Device device) : device(device) {}
+VulkanResourceTransient::~VulkanResourceTransient() = default;
 
-VulkanResourceInterface::~VulkanResourceInterface() = default;
-
-bool VulkanResourceInterface::TryCommit(VulkanFence& commit_fence) {
+bool VulkanResourceTransient::TryCommit(VulkanFence& commit_fence) {
     std::unique_lock lock(mutex);
     return UnsafeTryCommit(commit_fence);
 }
 
-void VulkanResourceInterface::Commit(VulkanFence& commit_fence) {
+void VulkanResourceTransient::Commit(VulkanFence& commit_fence) {
     std::unique_lock lock(mutex);
     if (fence) {
         device.waitForFences({*fence}, true, WaitTimeout);
@@ -77,15 +106,15 @@ void VulkanResourceInterface::Commit(VulkanFence& commit_fence) {
     ASSERT_MSG(available, "Unexpected race condition");
 }
 
-void VulkanResourceInterface::RemoveUsage() {
+void VulkanResourceTransient::RemoveUsage(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
-    ASSERT(fence);
+    ASSERT(fence && fence == signaling_fence);
     ASSERT(is_claimed);
     fence = nullptr;
     is_claimed = false;
 }
 
-bool VulkanResourceInterface::UnsafeTryCommit(VulkanFence& commit_fence) {
+bool VulkanResourceTransient::UnsafeTryCommit(VulkanFence& commit_fence) {
     if (is_claimed) {
         return false;
     }
@@ -95,9 +124,88 @@ bool VulkanResourceInterface::UnsafeTryCommit(VulkanFence& commit_fence) {
     return true;
 }
 
+VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device, std::mutex& mutex)
+    : handle(std::move(handle)), device(device), fences_mutex(mutex) {}
+
+VulkanFence::~VulkanFence() = default;
+
+void VulkanFence::Wait() {
+    std::unique_lock lock(fences_mutex);
+    device.waitForFences({*handle}, true, WaitTimeout);
+}
+
+void VulkanFence::Release() {
+    std::unique_lock wait_lock(wait_mutex);
+    if (is_being_waited) {
+        ownership_watch.notify_all();
+        // is_owned will be reseted by the waiter thread.
+    } else {
+        std::unique_lock fences_lock(fences_mutex);
+        is_owned = false;
+    }
+}
+
+void VulkanFence::Commit() {
+    is_owned = true;
+    is_used = true;
+}
+
+bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
+    if (!is_used) {
+        // If a fence is not used it's always free.
+        return true;
+    }
+    if (is_owned) {
+        if (!owner_wait) {
+            // The fence is still being owned (Release has not been called) and ownership wait has
+            // not been asked.
+            return false;
+        }
+
+        {
+            std::unique_lock wait_lock(wait_mutex);
+            is_being_waited = true;
+        }
+
+        std::unique_lock owner_lock(ownership_mutex);
+        ownership_watch.wait(owner_lock);
+
+        {
+            std::unique_lock wait_lock(wait_mutex);
+            is_being_waited = false;
+        }
+    }
+    if (gpu_wait) {
+        // Wait for the fence if it has been requested.
+        device.waitForFences({*handle}, true, WaitTimeout);
+    } else {
+        if (device.getFenceStatus(*handle) != vk::Result::eSuccess) {
+            // Vulkan fence is not ready, not much it can do here
+            return false;
+        }
+    }
+
+    // Broadcast resources their free state.
+    for (auto* resource : protected_resources) {
+        resource->RemoveUsage(this);
+    }
+    // TODO(Rodrigo): Find a way to preserve vector's allocated memory.
+    protected_resources.clear();
+
+    // Prepare fence for reusage.
+    device.resetFences({*handle});
+    is_used = false;
+    return true;
+}
+
+void VulkanFence::ProtectResource(VulkanResource* resource) {
+    protected_resources.push_back(resource);
+}
+
 VulkanResourceManager::VulkanResourceManager(const VulkanDevice& device_handler)
     : device(device_handler.GetLogical()), graphics_family(device_handler.GetGraphicsFamily()) {
-    CreateFences();
+
+    GrowFences(FENCES_COUNT);
     CreateCommands();
     CreateSemaphores();
 }
@@ -106,48 +214,35 @@ VulkanResourceManager::~VulkanResourceManager() = default;
 
 VulkanFence& VulkanResourceManager::CommitFence() {
     std::unique_lock lock(fences_mutex);
-    auto it = std::find_if(fences.begin(), fences.end(), [&](auto& fence) {
-        if (!fence->IsUsed()) {
-            return true;
-        }
-        if (fence->IsOwned()) {
-            return false;
-        }
-        // The fence has been used but it's no longer owned, check for its status.
-        if (device.getFenceStatus(*fence) != vk::Result::eSuccess) {
-            return false;
-        }
-        // In the case that it has been signaled, reset and remove its usage. The fence is free to
-        // be reused.
-        device.resetFences({*fence});
-        fence->RemoveUsage();
-        return true;
-    });
-    if (it != fences.end()) {
-        auto& fence = *it;
-        fence->Commit();
-        return *fence;
-    }
 
-    // Try again, this time waiting for a non owned fence to be signaled.
-    it = std::find_if(fences.begin(), fences.end(), [&](auto& fence) {
-        if (fence->IsOwned()) {
-            return false;
+    auto StepFences = [&](bool gpu_wait, bool owner_wait) -> VulkanFence* {
+        const auto it = std::find_if(fences.begin(), fences.end(), [&](auto& fence) {
+            return fence->Tick(gpu_wait, owner_wait);
+        });
+        if (it != fences.end()) {
+            auto& fence = *it;
+            fence->Commit();
+            return fence.get();
         }
-        device.waitForFences({*fence}, true, WaitTimeout);
-        device.resetFences({*fence});
-        fence->RemoveUsage();
-        return true;
-    });
-    if (it != fences.end()) {
-        auto& fence = *it;
-        fence->Commit();
-        return *fence;
-    }
+        return nullptr;
+    };
 
-    // All fences are owned. Panic.
-    // TODO(Rodrigo): Allocate more fences
-    UNREACHABLE_MSG("Reached fence limit.");
+    VulkanFence* found_fence = StepFences(false, false);
+    if (!found_fence) {
+        // Try again, this time waiting.
+        found_fence = StepFences(true, false);
+
+        if (!found_fence) {
+            // Allocate new fences and try again.
+            LOG_INFO(Render_Vulkan, "Allocating new fences {} -> {}", fences.size(),
+                     fences.size() + FENCES_GROW_STEP);
+
+            GrowFences(FENCES_GROW_STEP);
+            found_fence = StepFences(true, false);
+            ASSERT(found_fence != nullptr);
+        }
+    }
+    return *found_fence;
 }
 
 vk::CommandBuffer VulkanResourceManager::CommitCommandBuffer(VulkanFence& fence) {
@@ -174,11 +269,13 @@ T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
     return resource->Get();
 }
 
-void VulkanResourceManager::CreateFences() {
+void VulkanResourceManager::GrowFences(std::size_t new_fences_count) {
     const vk::FenceCreateInfo fence_ci;
 
-    fences.resize(FENCES_COUNT);
-    std::generate(fences.begin(), fences.end(), [&]() {
+    const std::size_t previous_size = fences.size();
+    fences.resize(previous_size + new_fences_count);
+
+    std::generate(fences.begin() + previous_size, fences.end(), [&]() {
         return std::make_unique<VulkanFence>(device.createFenceUnique(fence_ci), device,
                                              fences_mutex);
     });
