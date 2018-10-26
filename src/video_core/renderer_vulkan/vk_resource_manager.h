@@ -29,7 +29,7 @@ protected:
      * @param signaling_fence Fence that signals its usage end.
      * @remarks Thread safe.
      */
-    virtual void RemoveUsage(VulkanFence* signaling_fence) = 0;
+    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence) = 0;
 };
 
 /**
@@ -64,7 +64,7 @@ public:
     vk::Semaphore WriteProtect(VulkanFence& new_fence);
 
 protected:
-    virtual void RemoveUsage(VulkanFence* signaling_fence);
+    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence);
 
 private:
     VulkanResourceManager& resource_manager;
@@ -80,6 +80,26 @@ private:
     std::mutex ownership_mutex;        ///< Protects ownership changes.
     std::mutex fence_change_mutex;     ///< Protects internal changes in the owned fences.
 };
+
+template <typename T>
+class VulkanResourcePersistentEntry : public VulkanResourcePersistent {
+public:
+    VulkanResourcePersistentEntry(vk::UniqueHandle<T> handle) : handle(std::move(handle)) {}
+    ~VulkanResourcePersistentEntry() = default;
+
+    T& operator->() {
+        return *handle;
+    }
+
+    const T& operator->() const {
+        return *handle;
+    }
+
+private:
+    vk::UniqueHandle<T> handle;
+};
+
+using VulkanImage = VulkanResourcePersistentEntry<vk::Image>;
 
 /**
  * Transient resources are those you just use and discard for reusage. A simple example of this are
@@ -108,7 +128,7 @@ public:
     void Commit(VulkanFence& commit_fence);
 
 protected:
-    virtual void RemoveUsage(VulkanFence* signaling_fence) override;
+    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence) override;
 
 private:
     /// Backend for TryCommit and Commit, thread unsafe.
@@ -169,6 +189,13 @@ public:
      */
     void Release();
 
+    /**
+     * Protects a resource with this fence.
+     * @param resource Resource to protect.
+     * @remarks Thread safe.
+     */
+    void Protect(VulkanResource* resource);
+
     /// Retreives the fence.
     operator vk::Fence() const {
         return *handle;
@@ -188,10 +215,9 @@ private:
      */
     bool Tick(bool gpu_wait, bool owner_wait);
 
-    /// Protect a resource with this fence
-    void ProtectResource(VulkanResource* resource);
+    /// Backend for Protect
+    void UnsafeProtect(VulkanResource* resource);
 
-private:
     const vk::Device device;
     std::mutex& fences_mutex;
 

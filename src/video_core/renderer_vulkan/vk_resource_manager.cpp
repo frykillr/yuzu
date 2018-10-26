@@ -40,7 +40,7 @@ vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
     std::unique_lock fence_change_lock(fence_change_mutex);
     std::unique_lock external_fences_lock(external_fences_mutex);
 
-    new_fence.ProtectResource(this);
+    new_fence.UnsafeProtect(this);
     read_fences.push_back(&new_fence);
 
     return *write_semaphore;
@@ -69,13 +69,13 @@ vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
 
     // Add current the new fence.
     std::unique_lock lock(fence_change_mutex);
-    new_fence.ProtectResource(this);
+    new_fence.UnsafeProtect(this);
     write_fence = &new_fence;
 
     return *write_semaphore;
 }
 
-void VulkanResourcePersistent::RemoveUsage(VulkanFence* signaling_fence) {
+void VulkanResourcePersistent::NotifyFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(fence_change_mutex);
 
     if (write_fence == signaling_fence) {
@@ -106,7 +106,7 @@ void VulkanResourceTransient::Commit(VulkanFence& commit_fence) {
     ASSERT_MSG(available, "Unexpected race condition");
 }
 
-void VulkanResourceTransient::RemoveUsage(VulkanFence* signaling_fence) {
+void VulkanResourceTransient::NotifyFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
     ASSERT(fence && fence == signaling_fence);
     ASSERT(is_claimed);
@@ -120,7 +120,7 @@ bool VulkanResourceTransient::UnsafeTryCommit(VulkanFence& commit_fence) {
     }
     is_claimed = true;
     fence = &commit_fence;
-    commit_fence.ProtectResource(this);
+    commit_fence.UnsafeProtect(this);
     return true;
 }
 
@@ -187,7 +187,7 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
 
     // Broadcast resources their free state.
     for (auto* resource : protected_resources) {
-        resource->RemoveUsage(this);
+        resource->NotifyFenceRemoval(this);
     }
     // TODO(Rodrigo): Find a way to preserve vector's allocated memory.
     protected_resources.clear();
@@ -198,7 +198,12 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
     return true;
 }
 
-void VulkanFence::ProtectResource(VulkanResource* resource) {
+void VulkanFence::Protect(VulkanResource* resource) {
+    std::unique_lock lock(fences_mutex);
+    UnsafeProtect(resource);
+}
+
+void VulkanFence::UnsafeProtect(VulkanResource* resource) {
     protected_resources.push_back(resource);
 }
 
