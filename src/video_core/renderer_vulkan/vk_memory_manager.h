@@ -32,6 +32,7 @@ public:
     }
 
     u8* GetData() const {
+        ASSERT_MSG(data != nullptr, "Trying to access an unmapped commit.");
         return data;
     }
 
@@ -55,41 +56,28 @@ public:
     explicit VulkanMemoryManager(const VulkanDevice& device_handler);
     ~VulkanMemoryManager();
 
-    const VulkanMemoryCommit* Alloc(const vk::MemoryRequirements& mem_reqs, bool host_visible);
+    const VulkanMemoryCommit* Commit(const vk::MemoryRequirements& reqs, bool host_visible);
 
     void Free(const VulkanMemoryCommit* commit);
 
     bool IsMemoryUnified() const {
-        return host_visible_alloc == nullptr;
+        return is_memory_unified;
     }
 
 private:
-    void AllocDeviceLocal(const vk::PhysicalDeviceMemoryProperties& props);
-    void TryAllocHostVisible(const vk::PhysicalDeviceMemoryProperties& props);
+    bool AllocDevice(u32 type_mask, u64 size);
+    bool AllocHost(u32 type_mask, u64 size);
 
-    static u32 FindBestDeviceLocalType(const vk::PhysicalDeviceMemoryProperties& props,
-                                       u32 heap_index);
-
-    static u32 FindBestHostVisibleType(const vk::PhysicalDeviceMemoryProperties& props,
-                                       u32 heap_index);
-
-    static u32 FindDeviceLocalHeap(const vk::PhysicalDeviceMemoryProperties& props);
-
-    static std::optional<u32> FindNonDeviceLocalHeap(
-        const vk::PhysicalDeviceMemoryProperties& props);
-
-    static std::optional<u32> FindBiggestHeap(const vk::PhysicalDeviceMemoryProperties& props,
-                                              bool (*query)(const vk::MemoryHeap& heap));
-
-    static u64 CalculateAllocationSize(const vk::MemoryHeap& heap, u64 use_percent, u64 size_limit);
-
-    static bool IsMappeable(const vk::MemoryType& type);
+    u32 FindBestDeviceLocalType(u32 type_mask) const;
+    u32 FindBestHostVisibleType(u32 type_mask) const;
 
     const vk::Device device;
     const vk::PhysicalDevice physical_device;
+    const vk::PhysicalDeviceMemoryProperties props;
+    bool is_memory_unified{};
 
-    std::unique_ptr<VulkanMemoryAllocation> device_local_alloc;
-    std::unique_ptr<VulkanMemoryAllocation> host_visible_alloc;
+    std::vector<std::unique_ptr<VulkanMemoryAllocation>> device_allocs;
+    std::vector<std::unique_ptr<VulkanMemoryAllocation>> host_allocs;
 
     std::mutex mutex;
 };

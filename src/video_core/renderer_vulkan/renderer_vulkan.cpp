@@ -169,7 +169,7 @@ VulkanFence& RendererVulkan::DrawScreen(const Tegra::FramebufferConfig& framebuf
         const vk::MemoryRequirements mem_reqs =
             device.getImageMemoryRequirements(screen_info.staging_image);
 
-        screen_info.staging_memory = memory_manager->Alloc(mem_reqs, true);
+        screen_info.staging_memory = memory_manager->Commit(mem_reqs, true);
 
         device.bindImageMemory(screen_info.staging_image, screen_info.staging_memory->GetMemory(),
                                screen_info.staging_memory->GetOffset());

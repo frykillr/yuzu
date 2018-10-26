@@ -14,50 +14,42 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
-constexpr u64 DEVICE_LOCAL_USE_PERCENT = 75;
-constexpr u64 DEVICE_LOCAL_SIZE_LIMIT = 768 * 1024 * 1024;
-
-constexpr u64 HOST_VISIBLE_USE_PERCENT = 50;
-constexpr u64 HOST_VISIBLE_SIZE_LIMIT = 512 * 1024 * 1024;
+constexpr u64 ALLOC_CHUNK_SIZE = 256 * 1024 * 1024;
 
 class VulkanMemoryAllocation final {
 public:
-    explicit VulkanMemoryAllocation(vk::Device device, u64 alloc_size, u32 type, bool is_mappeable)
-        : device(device), alloc_size(alloc_size), shifted_type(ShiftType(type)),
+    explicit VulkanMemoryAllocation(vk::Device device, vk::DeviceMemory memory, u64 alloc_size,
+                                    u32 type, bool is_mappeable)
+        : device(device), memory(memory), alloc_size(alloc_size), shifted_type(ShiftType(type)),
           is_mappeable(is_mappeable) {
 
-        const vk::MemoryAllocateInfo memory_ai(alloc_size, type);
-        memory = device.allocateMemoryUnique(memory_ai);
         if (is_mappeable) {
-            base_address = static_cast<u8*>(device.mapMemory(*memory, 0, alloc_size, {}));
+            base_address = static_cast<u8*>(device.mapMemory(memory, 0, alloc_size, {}));
         }
     }
 
     ~VulkanMemoryAllocation() {
         if (is_mappeable) {
-            device.unmapMemory(*memory);
+            device.unmapMemory(memory);
         }
+        device.free(memory);
     }
 
-    const VulkanMemoryCommit* Alloc(vk::DeviceSize commit_size, vk::DeviceSize alignment) {
+    const VulkanMemoryCommit* Commit(vk::DeviceSize commit_size, vk::DeviceSize alignment) {
         auto found = TryFindFreeSection(free_iterator, alloc_size, static_cast<u64>(commit_size),
                                         static_cast<u64>(alignment));
         if (!found) {
             found = TryFindFreeSection(0, free_iterator, static_cast<u64>(commit_size),
                                        static_cast<u64>(alignment));
             if (!found) {
-                // TODO(Rodrigo): Try to do more allocations.
-                LOG_CRITICAL(Render_Vulkan, "Device out of memory!");
-                UNREACHABLE();
+                // Signal out of memory, try to do more allocations.
                 return nullptr;
             }
         }
         u8* address = is_mappeable ? base_address + *found : nullptr;
-        auto* commit = new VulkanMemoryCommit(this, *memory, address, *found, *found + commit_size);
+        auto* commit = new VulkanMemoryCommit(this, memory, address, *found, *found + commit_size);
         commits.push_back(std::unique_ptr<VulkanMemoryCommit>(commit));
 
         // Last commit's address is highly probable to be free.
@@ -111,11 +103,11 @@ private:
     }
 
     const vk::Device device;
+    const vk::DeviceMemory memory;
     const u64 alloc_size;
     const u32 shifted_type;
     const bool is_mappeable;
 
-    vk::UniqueDeviceMemory memory;
     u8* base_address{};
 
     u64 free_iterator{};
@@ -130,29 +122,60 @@ VulkanMemoryCommit::VulkanMemoryCommit(VulkanMemoryAllocation* allocation, vk::D
 VulkanMemoryCommit::~VulkanMemoryCommit() = default;
 
 VulkanMemoryManager::VulkanMemoryManager(const VulkanDevice& device_handler)
-    : device(device_handler.GetLogical()), physical_device(device_handler.GetPhysical()) {
+    : device(device_handler.GetLogical()), physical_device(device_handler.GetPhysical()),
+      props(device_handler.GetPhysical().getMemoryProperties()) {
 
-    const vk::PhysicalDeviceMemoryProperties props = physical_device.getMemoryProperties();
-    AllocDeviceLocal(props);
-    TryAllocHostVisible(props);
+    is_memory_unified = [&]() {
+        for (u32 heap_index = 0; heap_index < props.memoryHeapCount; ++heap_index) {
+            if (!(props.memoryHeaps[heap_index].flags & vk::MemoryHeapFlagBits::eDeviceLocal)) {
+                return true;
+            }
+        }
+        return false;
+    }();
 }
 
 VulkanMemoryManager::~VulkanMemoryManager() = default;
 
-const VulkanMemoryCommit* VulkanMemoryManager::Alloc(const vk::MemoryRequirements& mem_reqs,
-                                                     bool host_visible) {
+const VulkanMemoryCommit* VulkanMemoryManager::Commit(const vk::MemoryRequirements& reqs,
+                                                      bool host_visible) {
     std::unique_lock lock(mutex);
+    const bool use_host_memory = is_memory_unified || host_visible;
 
-    VulkanMemoryAllocation* allocation =
-        IsMemoryUnified() || !host_visible ? device_local_alloc.get() : host_visible_alloc.get();
-
-    if (!allocation->IsCompatible(mem_reqs.memoryTypeBits)) {
-        LOG_CRITICAL(Render_Vulkan, "Incompatible memory in the memory allocator.");
-        UNREACHABLE();
+    auto TryCommit = [&]() -> const VulkanMemoryCommit* {
+        const auto& allocs = use_host_memory ? host_allocs : device_allocs;
+        for (auto& alloc : allocs) {
+            if (!alloc->IsCompatible(reqs.memoryTypeBits)) {
+                continue;
+            }
+            if (auto* commit = alloc->Commit(reqs.size, reqs.alignment); commit) {
+                return commit;
+            }
+        }
         return nullptr;
+    };
+
+    if (const auto* commit = TryCommit(); commit != nullptr) {
+        return commit;
     }
 
-    return allocation->Alloc(mem_reqs.size, mem_reqs.alignment);
+    const bool allocated = [&]() {
+        if (!use_host_memory) {
+            if (AllocDevice(reqs.memoryTypeBits, ALLOC_CHUNK_SIZE)) {
+                return true;
+            }
+            LOG_INFO(Render_Vulkan, "Ran out of device memory, expected performance loss.");
+        }
+        return AllocHost(reqs.memoryTypeBits, ALLOC_CHUNK_SIZE);
+    }();
+    if (!allocated) {
+        LOG_CRITICAL(Render_Vulkan, "Ran out of host memory!");
+        UNREACHABLE();
+    }
+
+    const auto* commit = TryCommit();
+    ASSERT(commit != nullptr);
+    return commit;
 }
 
 void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
@@ -160,136 +183,106 @@ void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
     commit->GetAllocation()->Free(commit);
 }
 
-void VulkanMemoryManager::AllocDeviceLocal(const vk::PhysicalDeviceMemoryProperties& props) {
-    const u32 heap = FindDeviceLocalHeap(props);
-    const u32 type = FindBestDeviceLocalType(props, heap);
-    const u64 alloc_size = CalculateAllocationSize(
-        props.memoryHeaps[heap], DEVICE_LOCAL_USE_PERCENT, DEVICE_LOCAL_SIZE_LIMIT);
-    const bool is_mappeable = IsMappeable(props.memoryTypes[type]);
+bool VulkanMemoryManager::AllocDevice(u32 type_mask, u64 size) {
+    const u32 type = FindBestDeviceLocalType(type_mask);
+    const vk::MemoryAllocateInfo memory_ai(size, type);
 
-    device_local_alloc =
-        std::make_unique<VulkanMemoryAllocation>(device, alloc_size, type, is_mappeable);
-}
-
-void VulkanMemoryManager::TryAllocHostVisible(const vk::PhysicalDeviceMemoryProperties& props) {
-    const std::optional<u32> heap = FindNonDeviceLocalHeap(props);
-    if (!heap) {
-        // If there is no non-local memory the device is probably integrated. For these cases just
-        // do one allocation.
-        return;
+    vk::DeviceMemory memory;
+    switch (vk::Result res = device.allocateMemory(&memory_ai, nullptr, &memory); res) {
+    case vk::Result::eSuccess:
+        break;
+    case vk::Result::eErrorOutOfDeviceMemory:
+        return false;
+    default:
+        LOG_CRITICAL(Render_Vulkan, "Device allocation failed with code {}!",
+                     static_cast<u32>(res));
+        UNREACHABLE();
     }
 
-    const u32 type = FindBestHostVisibleType(props, *heap);
-    const u64 alloc_size = CalculateAllocationSize(
-        props.memoryHeaps[*heap], HOST_VISIBLE_USE_PERCENT, HOST_VISIBLE_SIZE_LIMIT);
-
-    host_visible_alloc = std::make_unique<VulkanMemoryAllocation>(device, alloc_size, type, true);
+    device_allocs.push_back(
+        std::make_unique<VulkanMemoryAllocation>(device, memory, size, type, false));
+    return true;
 }
 
-u32 VulkanMemoryManager::FindBestDeviceLocalType(const vk::PhysicalDeviceMemoryProperties& props,
-                                                 u32 heap_index) {
+bool VulkanMemoryManager::AllocHost(u32 type_mask, u64 size) {
+    const u32 type = FindBestHostVisibleType(type_mask);
+    const vk::MemoryAllocateInfo memory_ai(size, type);
+
+    vk::DeviceMemory memory;
+    switch (vk::Result res = device.allocateMemory(&memory_ai, nullptr, &memory); res) {
+    case vk::Result::eSuccess:
+        break;
+    case vk::Result::eErrorOutOfHostMemory:
+        return false;
+    default:
+        LOG_CRITICAL(Render_Vulkan, "Device allocation failed with code {}!",
+                     static_cast<u32>(res));
+        UNREACHABLE();
+    }
+
+    host_allocs.push_back(
+        std::make_unique<VulkanMemoryAllocation>(device, memory, size, type, true));
+    return true;
+}
+
+u32 VulkanMemoryManager::FindBestDeviceLocalType(u32 type_mask) const {
     std::optional<u32> best;
     for (u32 type_index = 0; type_index < props.memoryTypeCount; ++type_index) {
-        const auto& type = props.memoryTypes[type_index];
-        if (type.heapIndex != heap_index) {
+        const auto type = props.memoryTypes[type_index];
+        if ((type_mask & (1 << type_index)) == 0) {
             continue;
         }
-        if (!(type.propertyFlags & vk::MemoryPropertyFlagBits::eDeviceLocal)) {
-            // It has to be device local (this is implicit in the heap type, but it's worth
-            // checking).
+        const auto flags = type.propertyFlags;
+        if (!(flags & vk::MemoryPropertyFlagBits::eDeviceLocal)) {
             continue;
         }
-        if (type.propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible) {
-            // Not optimal if the type is host visible, mark is as best.
-            best = type_index;
-        } else {
-            // It's not host visible, just what we're looking for.
+        if ((flags & ~vk::MemoryPropertyFlagBits::eDeviceLocal) ==
+            static_cast<vk::MemoryPropertyFlagBits>(0)) {
+
+            // A device local only type, just what we're looking for.
             return type_index;
+        }
+        if (!best) {
+            // Store the first device local type
+            best = type_index;
         }
     }
     if (!best) {
-        LOG_CRITICAL(Render_Vulkan, "Device has no device local memory type!");
+        LOG_CRITICAL(Render_Vulkan, "The driver didn't report a device local memory type!");
         UNREACHABLE();
-        return 0;
     }
     return *best;
 }
 
-u32 VulkanMemoryManager::FindBestHostVisibleType(const vk::PhysicalDeviceMemoryProperties& props,
-                                                 u32 heap_index) {
+u32 VulkanMemoryManager::FindBestHostVisibleType(u32 type_mask) const {
+    const auto target_flags =
+        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
     std::optional<u32> best;
+
     for (u32 type_index = 0; type_index < props.memoryTypeCount; ++type_index) {
-        const auto& type = props.memoryTypes[type_index];
-        if (type.heapIndex != heap_index) {
+        const auto type = props.memoryTypes[type_index];
+        if ((type_mask & (1 << type_index)) == 0) {
             continue;
         }
-        if (!(type.propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible) ||
-            !(type.propertyFlags & vk::MemoryPropertyFlagBits::eHostCoherent)) {
+        const auto flags = type.propertyFlags;
+        if (!(flags & target_flags)) {
             continue;
         }
-        if (type.propertyFlags & vk::MemoryPropertyFlagBits::eHostCached) {
-            // Avoid cached memory if possible.
-            best = type_index;
-        } else {
-            // Just what we're looking for, host visible and coherent only memory.
+        if ((flags & ~target_flags) == static_cast<vk::MemoryPropertyFlagBits>(0)) {
+            // A host visible, coherent only type, just what we're looking for.
             return type_index;
+        }
+        if (!best) {
+            // Store the first host visible coherent type.
+            best = type_index;
         }
     }
     if (!best) {
-        LOG_CRITICAL(Render_Vulkan, "Device has no host visible and coherent memory type!");
+        LOG_CRITICAL(Render_Vulkan,
+                     "The driver didn't report a host visible and coherent memory type!");
         UNREACHABLE();
-        return 0;
     }
     return *best;
-}
-
-u32 VulkanMemoryManager::FindDeviceLocalHeap(const vk::PhysicalDeviceMemoryProperties& props) {
-    const auto heap = FindBiggestHeap(props, [](const vk::MemoryHeap& heap) {
-        return (heap.flags & vk::MemoryHeapFlagBits::eDeviceLocal) !=
-               static_cast<vk::MemoryHeapFlagBits>(0);
-    });
-    if (!heap) {
-        LOG_CRITICAL(Render_Vulkan, "Device has no device local memory heap!");
-        UNREACHABLE();
-        return 0;
-    }
-    return *heap;
-}
-
-std::optional<u32> VulkanMemoryManager::FindNonDeviceLocalHeap(
-    const vk::PhysicalDeviceMemoryProperties& props) {
-
-    return FindBiggestHeap(props, [](const vk::MemoryHeap& heap) {
-        return (heap.flags & vk::MemoryHeapFlagBits::eDeviceLocal) ==
-               static_cast<vk::MemoryHeapFlagBits>(0);
-    });
-}
-
-std::optional<u32> VulkanMemoryManager::FindBiggestHeap(
-    const vk::PhysicalDeviceMemoryProperties& props, bool (*query)(const vk::MemoryHeap& heap)) {
-
-    std::optional<u32> best_heap;
-    vk::DeviceSize best_size = 0;
-
-    for (u32 heap_index = 0; heap_index < props.memoryHeapCount; ++heap_index) {
-        const auto& heap = props.memoryHeaps[heap_index];
-        if (query(heap) && heap.size > best_size) {
-            best_size = heap.size;
-            best_heap = heap_index;
-        }
-    }
-    return best_heap;
-}
-
-u64 VulkanMemoryManager::CalculateAllocationSize(const vk::MemoryHeap& heap, u64 use_percent,
-                                                 u64 size_limit) {
-
-    return std::min((heap.size * use_percent) / 100, size_limit);
-}
-
-bool VulkanMemoryManager::IsMappeable(const vk::MemoryType& type) {
-    return (type.propertyFlags & vk::MemoryPropertyFlagBits::eHostVisible) ==
-           vk::MemoryPropertyFlagBits::eHostVisible;
 }
 
 } // namespace Vulkan
