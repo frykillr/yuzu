@@ -55,13 +55,21 @@ VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                        VulkanMemoryManager& memory_manager, u64 size,
                                        vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
+      memory_manager(memory_manager), has_device_memory(!memory_manager.IsMemoryUnified()),
+      buffer_size(size) {
 
     CreateBuffers(memory_manager, usage);
     GrowResources(RESOURCE_RESERVE);
 }
 
-VulkanStreamBuffer::~VulkanStreamBuffer() = default;
+VulkanStreamBuffer::~VulkanStreamBuffer() {
+    if (device_commit) {
+        memory_manager.Free(device_commit);
+    }
+    if (mappeable_commit) {
+        memory_manager.Free(mappeable_commit);
+    }
+}
 
 std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, bool keep_in_host) {
     mutex.lock();
@@ -138,10 +146,11 @@ void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
         mappeable_buffer = device.createBufferUnique(buffer_ci);
 
         const vk::MemoryRequirements reqs = device.getBufferMemoryRequirements(*mappeable_buffer);
-        const VulkanMemoryCommit* commit = memory_manager.Commit(reqs, true);
-        device.bindBufferMemory(*mappeable_buffer, commit->GetMemory(), commit->GetOffset());
+        mappeable_commit = memory_manager.Commit(reqs, true);
+        device.bindBufferMemory(*mappeable_buffer, mappeable_commit->GetMemory(),
+                                mappeable_commit->GetOffset());
 
-        mapped_ptr = commit->GetData();
+        mapped_ptr = mappeable_commit->GetData();
     }
 
     if (has_device_memory) {
@@ -151,8 +160,9 @@ void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
         device_buffer = device.createBufferUnique(buffer_ci);
 
         const vk::MemoryRequirements reqs = device.getBufferMemoryRequirements(*device_buffer);
-        const VulkanMemoryCommit* commit = memory_manager.Commit(reqs, false);
-        device.bindBufferMemory(*device_buffer, commit->GetMemory(), commit->GetOffset());
+        device_commit = memory_manager.Commit(reqs, false);
+        device.bindBufferMemory(*device_buffer, device_commit->GetMemory(),
+                                device_commit->GetOffset());
     }
 }
 

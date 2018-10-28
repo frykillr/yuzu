@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <limits>
 #include <optional>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"

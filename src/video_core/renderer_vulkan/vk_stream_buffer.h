@@ -36,9 +36,13 @@ private:
     void GrowResources(std::size_t grow_size);
 
     VulkanResourceManager& resource_manager;
+    VulkanMemoryManager& memory_manager;
     const vk::Device device;
     const u64 buffer_size;
     const bool has_device_memory;
+
+    const VulkanMemoryCommit* mappeable_commit{};
+    const VulkanMemoryCommit* device_commit{};
 
     vk::UniqueBuffer mappeable_buffer;
     vk::UniqueBuffer device_buffer;

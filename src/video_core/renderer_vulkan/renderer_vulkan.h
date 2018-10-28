@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <limits>
 #include <optional>
 #include <vector>
 #include <vulkan/vulkan.hpp>
@@ -13,11 +12,13 @@
 
 namespace Vulkan {
 
+class VulkanBlitScreen;
 class VulkanMemoryCommit;
 class VulkanDevice;
 class VulkanFence;
 class VulkanMemoryManager;
 class VulkanResourceManager;
+class VulkanStreamBuffer;
 class VulkanSwapchain;
 class VulkanSync;
 
@@ -52,7 +53,7 @@ private:
     bool InitVulkanObjects();
     bool PickDevices();
 
-    VulkanFence& DrawScreen(const Tegra::FramebufferConfig& framebuffer);
+    static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
 
     vk::Instance instance;
     vk::SurfaceKHR surface;
@@ -66,9 +67,11 @@ private:
     std::unique_ptr<VulkanSwapchain> swapchain;
     std::unique_ptr<VulkanMemoryManager> memory_manager;
     std::unique_ptr<VulkanResourceManager> resource_manager;
+    std::unique_ptr<VulkanStreamBuffer> stream_buffer;
     std::unique_ptr<VulkanSync> sync;
+    std::unique_ptr<VulkanBlitScreen> blit_screen;
 
-    vk::Semaphore present_semaphore;
+    vk::UniqueSemaphore present_semaphore;
 };
 
 } // namespace Vulkan

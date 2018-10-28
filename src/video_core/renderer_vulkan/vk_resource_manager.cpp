@@ -35,6 +35,22 @@ VulkanResourcePersistent::VulkanResourcePersistent(VulkanResourceManager& resour
 
 VulkanResourcePersistent::~VulkanResourcePersistent() = default;
 
+void VulkanResourcePersistent::Wait() {
+    // Wait for all fences, we can't write unless all previous operations have finished.
+    // Lock fences to avoid external fence changes while we loop.
+    std::unique_lock external_fences_lock(external_fences_mutex);
+
+    // If there's a softlock here you may have forgotten to call Release.
+    for (auto* fence : read_fences) {
+        const bool is_free = fence->Tick(true, true);
+        ASSERT(is_free);
+    }
+    if (write_fence) {
+        const bool is_free = write_fence->Tick(true, true);
+        ASSERT(is_free);
+    }
+}
+
 vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
     std::unique_lock ownership_lock(ownership_mutex);
     std::unique_lock fence_change_lock(fence_change_mutex);
@@ -48,21 +64,8 @@ vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
 
 vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
     std::unique_lock ownership_lock(ownership_mutex);
-    {
-        // Wait for all fences, we can't write unless all previous operations have finished.
-        // Lock fences to avoid external fence changes while we loop.
-        std::unique_lock external_fences_lock(external_fences_mutex);
+    Wait();
 
-        // If there's a softlock here you may have forgotten to call Release.
-        for (auto* fence : read_fences) {
-            const bool is_free = fence->Tick(true, true);
-            ASSERT(is_free);
-        }
-        if (write_fence) {
-            const bool is_free = write_fence->Tick(true, true);
-            ASSERT(is_free);
-        }
-    }
     // There's a bug if the resource is not free after waiting for all of its fences.
     ASSERT(read_fences.empty());
     ASSERT(write_fence == nullptr);
@@ -256,6 +259,13 @@ vk::CommandBuffer VulkanResourceManager::CommitCommandBuffer(VulkanFence& fence)
 
 vk::Semaphore VulkanResourceManager::CommitSemaphore(VulkanFence& fence) {
     return *CommitFreeResource(semaphores, fence);
+}
+
+std::unique_ptr<VulkanImage> VulkanResourceManager::CreateImage(
+    const vk::ImageCreateInfo& image_ci) {
+
+    return std::make_unique<VulkanImage>(*this, device, fences_mutex,
+                                         device.createImageUnique(image_ci));
 }
 
 template <typename T>

@@ -32,15 +32,33 @@ public:
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 
-    const vk::Extent2D& GetSize() const;
-    const vk::Image& GetImage() const;
-    const vk::RenderPass& GetRenderPass() const;
+    const vk::Extent2D& GetSize() const {
+        return extent;
+    }
+
+    u32 GetImageCount() const {
+        return image_count;
+    }
+
+    u32 GetImageIndex() const {
+        return image_index;
+    }
+
+    vk::Image GetImageIndex(u32 index) const {
+        return images[index];
+    }
+
+    vk::ImageView GetImageViewIndex(u32 index) const {
+        return *image_views[index];
+    }
+
+    vk::Format GetImageFormat() const {
+        return image_format;
+    }
 
 private:
     void CreateSwapchain(u32 width, u32 height, const vk::SurfaceCapabilitiesKHR& capabilities);
     void CreateImageViews();
-    void CreateRenderPass();
-    void CreateFramebuffers();
 
     void Destroy();
 
@@ -58,7 +76,6 @@ private:
     std::vector<vk::UniqueImageView> image_views;
     std::vector<vk::UniqueFramebuffer> framebuffers;
     std::vector<VulkanFence*> fences;
-    vk::UniqueRenderPass renderpass;
 
     u32 image_index{};
 

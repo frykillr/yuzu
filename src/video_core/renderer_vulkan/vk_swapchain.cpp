@@ -72,8 +72,6 @@ void VulkanSwapchain::Create(u32 width, u32 height) {
 
     CreateSwapchain(width, height, capabilities);
     CreateImageViews();
-    CreateRenderPass();
-    CreateFramebuffers();
 
     fences.resize(image_count, nullptr);
 }
@@ -118,18 +116,6 @@ bool VulkanSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& fra
     return framebuffer.width != current_width || framebuffer.height != current_height;
 }
 
-const vk::Extent2D& VulkanSwapchain::GetSize() const {
-    return extent;
-}
-
-const vk::Image& VulkanSwapchain::GetImage() const {
-    return images[image_index];
-}
-
-const vk::RenderPass& VulkanSwapchain::GetRenderPass() const {
-    return *renderpass;
-}
-
 void VulkanSwapchain::CreateSwapchain(u32 width, u32 height,
                                       const vk::SurfaceCapabilitiesKHR& capabilities) {
     std::vector<vk::SurfaceFormatKHR> formats{physical_device.getSurfaceFormatsKHR(surface)};
@@ -151,9 +137,9 @@ void VulkanSwapchain::CreateSwapchain(u32 width, u32 height,
 
     vk::SwapchainCreateInfoKHR swapchain_ci(
         {}, surface, requested_image_count, surface_format.format, surface_format.colorSpace,
-        extent, 1, vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
-        {}, {}, {}, capabilities.currentTransform, vk::CompositeAlphaFlagBitsKHR::eOpaque,
-        present_mode, false, {});
+        extent, 1, vk::ImageUsageFlagBits::eColorAttachment, {}, {}, {},
+        capabilities.currentTransform, vk::CompositeAlphaFlagBitsKHR::eOpaque, present_mode, false,
+        {});
 
     std::array<u32, 2> queue_indices{graphics_family, present_family};
     if (graphics_family != present_family) {
@@ -179,43 +165,8 @@ void VulkanSwapchain::CreateImageViews() {
     }
 }
 
-void VulkanSwapchain::CreateRenderPass() {
-    vk::AttachmentDescription color_attachment(
-        {}, image_format, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eClear,
-        vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
-        vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined,
-        vk::ImageLayout::ePresentSrcKHR);
-
-    vk::AttachmentReference color_attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
-
-    vk::SubpassDescription subpass_description;
-    subpass_description.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
-    subpass_description.colorAttachmentCount = 1;
-    subpass_description.pColorAttachments = &color_attachment_ref;
-
-    vk::SubpassDependency dependency(
-        VK_SUBPASS_EXTERNAL, 0, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput, {},
-        vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite, {});
-
-    vk::RenderPassCreateInfo renderpass_ci({}, 1, &color_attachment, 1, &subpass_description, 1,
-                                           &dependency);
-    renderpass = device.createRenderPassUnique(renderpass_ci);
-}
-
-void VulkanSwapchain::CreateFramebuffers() {
-    framebuffers.resize(image_count);
-    for (u32 i = 0; i < image_count; i++) {
-        vk::ImageView image_view{*image_views[i]};
-        const vk::FramebufferCreateInfo framebuffer_ci({}, *renderpass, 1, &image_view,
-                                                       extent.width, extent.height, 1);
-        framebuffers[i] = device.createFramebufferUnique(framebuffer_ci);
-    }
-}
-
 void VulkanSwapchain::Destroy() {
     framebuffers.clear();
-    renderpass.reset();
     image_views.clear();
     handle.reset();
 }

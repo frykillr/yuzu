@@ -45,6 +45,12 @@ public:
     virtual ~VulkanResourcePersistent();
 
     /**
+     * Waits for all operations to finish.
+     * @remarks Thread safe.
+     */
+    void Wait();
+
+    /**
      * Takes partial ownership of the resource to read from it. Read operations have to signal it
      * when they finish.
      * @param new_fence Fence to hold the right to read from the resource.
@@ -84,14 +90,13 @@ private:
 template <typename T>
 class VulkanResourcePersistentEntry : public VulkanResourcePersistent {
 public:
-    VulkanResourcePersistentEntry(vk::UniqueHandle<T> handle) : handle(std::move(handle)) {}
+    VulkanResourcePersistentEntry(VulkanResourceManager& resource_manager, vk::Device device,
+                                  std::mutex& external_fences_mutex, vk::UniqueHandle<T> handle)
+        : VulkanResourcePersistent(resource_manager, device, external_fences_mutex),
+          handle(std::move(handle)) {}
     ~VulkanResourcePersistentEntry() = default;
 
-    T& operator->() {
-        return *handle;
-    }
-
-    const T& operator->() const {
+    T GetHandle() const {
         return *handle;
     }
 
@@ -250,6 +255,8 @@ public:
 
     vk::Semaphore CommitSemaphore(VulkanFence& fence);
 
+    std::unique_ptr<VulkanImage> CreateImage(const vk::ImageCreateInfo& image_ci);
+
 private:
     template <typename T>
     using ResourceVector = std::vector<std::unique_ptr<VulkanResourceEntry<T>>>;
@@ -260,6 +267,7 @@ private:
     void GrowFences(std::size_t new_fences_count);
 
     void CreateCommands();
+    void CreateDescriptors();
     void CreateSemaphores();
 
     const vk::Device device;
@@ -270,6 +278,9 @@ private:
 
     vk::UniqueCommandPool command_pool;
     ResourceVector<vk::CommandBuffer> command_buffers;
+
+    vk::UniqueDescriptorPool descriptor_pool;
+    ResourceVector<vk::DescriptorSet> descriptor_set;
 
     ResourceVector<vk::UniqueSemaphore> semaphores;
 };

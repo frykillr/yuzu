@@ -14,6 +14,8 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 
+//#pragma optimize("", off)
+
 namespace Vulkan {
 
 constexpr u64 ALLOC_CHUNK_SIZE = 256 * 1024 * 1024;
@@ -179,6 +181,9 @@ const VulkanMemoryCommit* VulkanMemoryManager::Commit(const vk::MemoryRequiremen
 }
 
 void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
+    if (commit == nullptr) {
+        return;
+    }
     std::unique_lock lock(mutex);
     commit->GetAllocation()->Free(commit);
 }

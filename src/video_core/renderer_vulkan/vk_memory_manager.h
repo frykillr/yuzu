@@ -8,6 +8,7 @@
 #include <mutex>
 #include <tuple>
 #include <vulkan/vulkan.hpp>
+#include "common/assert.h"
 #include "common/common_types.h"
 
 namespace Vulkan {
