@@ -206,8 +206,46 @@ void VulkanFence::Protect(VulkanResource* resource) {
     UnsafeProtect(resource);
 }
 
+void VulkanFence::Unprotect(VulkanResource* resource) {
+    std::unique_lock lock(fences_mutex);
+    const auto it = std::find(protected_resources.begin(), protected_resources.end(), resource);
+    if (it != protected_resources.end()) {
+        protected_resources.erase(it);
+    }
+}
+
 void VulkanFence::UnsafeProtect(VulkanResource* resource) {
     protected_resources.push_back(resource);
+}
+
+VulkanFenceWatch::VulkanFenceWatch() = default;
+
+VulkanFenceWatch::~VulkanFenceWatch() {
+    if (fence) {
+        fence->Unprotect(this);
+    }
+}
+
+void VulkanFenceWatch::Wait() {
+    std::unique_lock lock(mutex);
+    if (!fence) {
+        return;
+    }
+    fence->Wait();
+    fence = nullptr;
+}
+
+void VulkanFenceWatch::Watch(VulkanFence& new_fence) {
+    Wait();
+
+    std::unique_lock lock(mutex);
+    fence = &new_fence;
+    fence->Protect(this);
+}
+
+void VulkanFenceWatch::NotifyFenceRemoval(VulkanFence* signaling_fence) {
+    std::unique_lock lock(mutex);
+    fence = nullptr;
 }
 
 VulkanResourceManager::VulkanResourceManager(const VulkanDevice& device_handler)

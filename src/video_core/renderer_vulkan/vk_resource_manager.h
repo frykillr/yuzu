@@ -201,6 +201,13 @@ public:
      */
     void Protect(VulkanResource* resource);
 
+    /**
+     * Removes protection for a resource.
+     * @param resource Resource to unprotect.
+     * @remarks Thread safe.
+     */
+    void Unprotect(VulkanResource* resource);
+
     /// Retreives the fence.
     operator vk::Fence() const {
         return *handle;
@@ -236,6 +243,32 @@ private:
     bool is_used{};  /// The fence has been commited but it has not been checked to be free.
 
     bool is_being_waited{};
+};
+
+class VulkanFenceWatch final : public VulkanResource {
+public:
+    explicit VulkanFenceWatch();
+    ~VulkanFenceWatch();
+
+    /**
+     * Waits for a watched fence if it is bound.
+     * @remarks Thread safe.
+     */
+    void Wait();
+
+    /**
+     * Waits for a previous fence and watches a new one.
+     * @param new_fence New fence to wait to.
+     * @remarks Thread safe.
+     */
+    void Watch(VulkanFence& new_fence);
+
+protected:
+    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence);
+
+private:
+    VulkanFence* fence{};
+    std::mutex mutex;
 };
 
 /**

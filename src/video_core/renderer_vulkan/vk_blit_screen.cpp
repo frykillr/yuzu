@@ -119,13 +119,13 @@ static const u8 blit_fragment_code[] = {
     0x13, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x01, 0x00, 0x38, 0x00, 0x01, 0x00};
 
 struct ScreenRectVertex {
-    ScreenRectVertex(float x, float y, float u, float v) {
+    ScreenRectVertex(f32 x, f32 y, f32 u, f32 v) {
         position = {x, y};
         tex_coord = {u, v};
     }
 
-    std::array<float, 2> position;
-    std::array<float, 2> tex_coord;
+    std::array<f32, 2> position;
+    std::array<f32, 2> tex_coord;
 
     static vk::VertexInputBindingDescription GetDescription() {
         return vk::VertexInputBindingDescription(0, sizeof(ScreenRectVertex),
@@ -141,10 +141,10 @@ struct ScreenRectVertex {
 };
 
 struct ScreenUniformData {
-    std::array<float, 4 * 4> matrix;
+    std::array<f32, 4 * 4> matrix;
 };
 
-static std::array<GLfloat, 4 * 4> MakeOrthographicMatrix(const float width, const float height) {
+static std::array<f32, 4 * 4> MakeOrthographicMatrix(const f32 width, const f32 height) {
     // clang-format off
     return { 2.f / width, 0.f,          0.f, 0.f,
              0.f,        -2.f / height, 0.f, 0.f,
@@ -161,6 +161,10 @@ VulkanBlitScreen::VulkanBlitScreen(VideoCore::RasterizerInterface& rasterizer,
     : rasterizer(rasterizer), render_window(render_window), device(device_handler.GetLogical()),
       resource_manager(resource_manager), memory_manager(memory_manager), swapchain(swapchain),
       image_count(swapchain.GetImageCount()) {
+
+    watches.resize(image_count);
+    std::generate(watches.begin(), watches.end(),
+                  []() { return std::make_unique<VulkanFenceWatch>(); });
 
     CreateShaders();
     CreateDescriptorPool();
@@ -198,7 +202,8 @@ VulkanFence& VulkanBlitScreen::Draw(VulkanSync& sync, const Tegra::FramebufferCo
     u8* data = buffer_commit->GetData();
 
     auto* uniform_data = reinterpret_cast<ScreenUniformData*>(data + GetUniformDataOffset());
-    uniform_data->matrix = MakeOrthographicMatrix(layout.width, layout.height);
+    uniform_data->matrix =
+        MakeOrthographicMatrix(static_cast<f32>(layout.width), static_cast<f32>(layout.height));
 
     SetVertexData(framebuffer);
 
@@ -209,13 +214,12 @@ VulkanFence& VulkanBlitScreen::Draw(VulkanSync& sync, const Tegra::FramebufferCo
                                    Memory::GetPointer(framebuffer_addr), data + image_offset, true);
 
     VulkanFence& fence = sync.PrepareExecute(false);
-    raw_images[image_index]->ReadProtect(fence);
+    watches[image_index]->Watch(fence);
 
     // Record blitting.
     vk::CommandBuffer cmdbuf{sync.BeginRecord()};
 
-    const vk::Image raw_image = raw_images[image_index]->GetHandle();
-
+    const vk::Image raw_image = *raw_images[image_index];
     SetImageLayout(cmdbuf, raw_image, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eUndefined,
                    vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eFragmentShader,
                    vk::PipelineStageFlagBits::eTransfer);
@@ -230,12 +234,12 @@ VulkanFence& VulkanBlitScreen::Draw(VulkanSync& sync, const Tegra::FramebufferCo
                    vk::PipelineStageFlagBits::eFragmentShader);
 
     const vk::Extent2D size = swapchain.GetSize();
-    const vk::ClearValue clear_color{std::array<float, 4>{1.0f, 0.0f, 0.0f, 1.0f}};
+    const vk::ClearValue clear_color{std::array<f32, 4>{1.0f, 0.0f, 0.0f, 1.0f}};
     const vk::RenderPassBeginInfo renderpass_bi(*renderpass, *framebuffers[image_index],
                                                 {{0, 0}, size}, 1, &clear_color);
 
-    cmdbuf.setViewport(0, {{0.0f, 0.0f, static_cast<float>(size.width),
-                            static_cast<float>(size.height), 0.0f, 1.0f}});
+    cmdbuf.setViewport(
+        0, {{0.0f, 0.0f, static_cast<f32>(size.width), static_cast<f32>(size.height), 0.0f, 1.0f}});
     cmdbuf.setScissor(0, {{{0, 0}, size}});
 
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
@@ -410,7 +414,7 @@ void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuf
     raw_height = framebuffer.height;
 
     for (u32 i = 0; i < static_cast<u32>(raw_images.size()); ++i) {
-        raw_images[i]->Wait();
+        watches[i]->Wait();
         raw_images[i].reset();
         memory_manager.Free(raw_buffer_commits[i]);
     }
@@ -442,8 +446,8 @@ void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuf
             vk::ImageTiling::eLinear,
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
-        raw_images[i] = resource_manager.CreateImage(image_ci);
-        const vk::Image image = raw_images[i]->GetHandle();
+        raw_images[i] = device.createImageUnique(image_ci);
+        const vk::Image image = *raw_images[i];
 
         raw_buffer_commits[i] =
             memory_manager.Commit(device.getImageMemoryRequirements(image), false);
@@ -469,9 +473,9 @@ void VulkanBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer
     const auto& framebuffer_transform_flags = framebuffer.transform_flags;
     const auto& framebuffer_crop_rect = framebuffer.crop_rect;
 
-    const MathUtil::Rectangle<float> texcoords{0.0f, 0.0f, 1.0f, 1.0f};
-    auto left = texcoords.left;
-    auto right = texcoords.right;
+    const MathUtil::Rectangle<f32> texcoords{0.f, 0.f, 1.f, 1.f};
+    const auto left = texcoords.left;
+    const auto right = texcoords.right;
 
     ASSERT_MSG(framebuffer_crop_rect.top == 0, "Unimplemented");
     ASSERT_MSG(framebuffer_crop_rect.left == 0, "Unimplemented");
@@ -489,10 +493,10 @@ void VulkanBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer
     }
 
     const auto& screen = render_window.GetFramebufferLayout().screen;
-    const float x = screen.left;
-    const float y = screen.top;
-    const float w = screen.GetWidth();
-    const float h = screen.GetHeight();
+    const auto x = static_cast<f32>(screen.left);
+    const auto y = static_cast<f32>(screen.top);
+    const auto w = static_cast<f32>(screen.GetWidth());
+    const auto h = static_cast<f32>(screen.GetHeight());
 
     u8* data = buffer_commit->GetData();
     auto* vertex_data = reinterpret_cast<ScreenRectVertex*>(data + GetVertexDataOffset());

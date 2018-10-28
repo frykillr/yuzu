@@ -82,7 +82,9 @@ private:
     vk::UniqueBuffer buffer;
     const VulkanMemoryCommit* buffer_commit{};
 
-    std::vector<std::unique_ptr<VulkanImage>> raw_images;
+    std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
+
+    std::vector<vk::UniqueImage> raw_images;
     std::vector<vk::UniqueImageView> raw_image_views;
     std::vector<vk::UniqueSampler> raw_samplers;
     std::vector<const VulkanMemoryCommit*> raw_buffer_commits;
