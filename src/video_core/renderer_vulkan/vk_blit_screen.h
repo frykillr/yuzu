@@ -21,6 +21,7 @@ class RasterizerInterface;
 
 namespace Vulkan {
 
+struct ScreenInfo;
 class RasterizerVulkan;
 class VulkanDevice;
 class VulkanFence;
@@ -31,15 +32,16 @@ class VulkanSync;
 
 class VulkanBlitScreen final {
 public:
-    explicit VulkanBlitScreen(VideoCore::RasterizerInterface& rasterizer,
-                              Core::Frontend::EmuWindow& render_window,
+    explicit VulkanBlitScreen(Core::Frontend::EmuWindow& render_window,
                               VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
-                              VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain);
+                              VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain,
+                              VulkanScreenInfo& screen_info);
     ~VulkanBlitScreen();
 
     void Recreate();
 
-    VulkanFence& Draw(VulkanSync& sync, const Tegra::FramebufferConfig& framebuffer);
+    VulkanFence& Draw(VideoCore::RasterizerInterface& rasterizer, VulkanSync& sync,
+                      const Tegra::FramebufferConfig& framebuffer);
 
 private:
     void CreateShaders();
@@ -52,8 +54,9 @@ private:
 
     void CreateFramebuffers();
 
-    void UpdateDescriptorSet(u32 image_index);
+    void UpdateDescriptorSet(u32 image_index, vk::ImageView image_view);
     void RefreshRawImages(const Tegra::FramebufferConfig& framebuffer);
+    void SetUniformData(const Tegra::FramebufferConfig& framebuffer);
     void SetVertexData(const Tegra::FramebufferConfig& framebuffer);
 
     u64 CalculateBufferSize(const Tegra::FramebufferConfig& framebuffer) const;
@@ -61,13 +64,13 @@ private:
     u64 GetVertexDataOffset() const;
     u64 GetRawImageOffset(const Tegra::FramebufferConfig& framebuffer, u32 image_index) const;
 
-    VideoCore::RasterizerInterface& rasterizer;
     Core::Frontend::EmuWindow& render_window;
     const vk::Device device;
     VulkanResourceManager& resource_manager;
     VulkanMemoryManager& memory_manager;
     VulkanSwapchain& swapchain;
     const u32 image_count;
+    VulkanScreenInfo& screen_info;
 
     vk::UniqueShaderModule vertex_shader;
     vk::UniqueShaderModule fragment_shader;
@@ -78,6 +81,7 @@ private:
     vk::UniqueRenderPass renderpass;
     std::vector<vk::UniqueFramebuffer> framebuffers;
     std::vector<vk::DescriptorSet> descriptor_sets;
+    vk::UniqueSampler sampler;
 
     vk::UniqueBuffer buffer;
     const VulkanMemoryCommit* buffer_commit{};
@@ -85,8 +89,6 @@ private:
     std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
 
     std::vector<vk::UniqueImage> raw_images;
-    std::vector<vk::UniqueImageView> raw_image_views;
-    std::vector<vk::UniqueSampler> raw_samplers;
     std::vector<const VulkanMemoryCommit*> raw_buffer_commits;
     u32 raw_width{}, raw_height{};
 };

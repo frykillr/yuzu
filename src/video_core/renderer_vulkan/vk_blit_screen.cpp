@@ -11,6 +11,7 @@
 #include "core/memory.h"
 #include "video_core/gpu.h"
 #include "video_core/rasterizer_interface.h"
+#include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_blit_screen.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
@@ -153,14 +154,14 @@ static std::array<f32, 4 * 4> MakeOrthographicMatrix(const f32 width, const f32 
     // clang-format on
 }
 
-VulkanBlitScreen::VulkanBlitScreen(VideoCore::RasterizerInterface& rasterizer,
-                                   Core::Frontend::EmuWindow& render_window,
+VulkanBlitScreen::VulkanBlitScreen(Core::Frontend::EmuWindow& render_window,
                                    VulkanDevice& device_handler,
                                    VulkanResourceManager& resource_manager,
-                                   VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain)
-    : rasterizer(rasterizer), render_window(render_window), device(device_handler.GetLogical()),
+                                   VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain,
+                                   VulkanScreenInfo& screen_info)
+    : render_window(render_window), device(device_handler.GetLogical()),
       resource_manager(resource_manager), memory_manager(memory_manager), swapchain(swapchain),
-      image_count(swapchain.GetImageCount()) {
+      image_count(swapchain.GetImageCount()), screen_info(screen_info) {
 
     watches.resize(image_count);
     std::generate(watches.begin(), watches.end(),
@@ -174,6 +175,14 @@ VulkanBlitScreen::VulkanBlitScreen(VideoCore::RasterizerInterface& rasterizer,
     CreatePipelineLayout();
     CreateGraphicsPipeline();
 
+    // TODO(Rodrigo): Move me to a function
+    const vk::SamplerCreateInfo sampler_ci(
+        {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
+        vk::SamplerAddressMode::eClampToBorder, vk::SamplerAddressMode::eClampToBorder,
+        vk::SamplerAddressMode::eClampToBorder, 0.0f, false, 0.0f, false, vk::CompareOp::eNever,
+        0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack, false);
+    sampler = device.createSamplerUnique(sampler_ci);
+
     Recreate();
 }
 
@@ -183,58 +192,84 @@ void VulkanBlitScreen::Recreate() {
     CreateFramebuffers();
 }
 
-VulkanFence& VulkanBlitScreen::Draw(VulkanSync& sync, const Tegra::FramebufferConfig& framebuffer) {
+VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VulkanSync& sync,
+                                    const Tegra::FramebufferConfig& framebuffer) {
+
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
-    if (rasterizer.AccelerateDisplay(framebuffer, framebuffer_addr, framebuffer.stride)) {
-        UNREACHABLE();
-    }
+    const bool use_accelerated =
+        rasterizer.AccelerateDisplay(framebuffer, framebuffer_addr, framebuffer.stride);
+
     const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
     const u32 image_index = swapchain.GetImageIndex();
     const vk::Extent2D& framebuffer_size{swapchain.GetSize()};
 
+    const vk::Image blit_image = use_accelerated ? screen_info.image : *raw_images[image_index];
+
+    // TODO(Rodrigo): Resource manage this.
+    // TODO(Rodrigo): Get format from an image manager.
+    const vk::ImageViewCreateInfo image_view_ci({}, blit_image, vk::ImageViewType::e2D,
+                                                vk::Format::eA8B8G8R8UnormPack32, {},
+                                                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+    const vk::ImageView image_view = device.createImageView(image_view_ci);
+
     RefreshRawImages(framebuffer);
-    UpdateDescriptorSet(image_index);
+    UpdateDescriptorSet(image_index, image_view);
 
-    const auto& layout = render_window.GetFramebufferLayout();
-    const auto& screen = layout.screen;
-
-    u8* data = buffer_commit->GetData();
-
-    auto* uniform_data = reinterpret_cast<ScreenUniformData*>(data + GetUniformDataOffset());
-    uniform_data->matrix =
-        MakeOrthographicMatrix(static_cast<f32>(layout.width), static_cast<f32>(layout.height));
-
+    SetUniformData(framebuffer);
     SetVertexData(framebuffer);
 
-    Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes, Memory::FlushMode::Flush);
-
     const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
-    VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
-                                   Memory::GetPointer(framebuffer_addr), data + image_offset, true);
+    if (!use_accelerated) {
+        u8* data = buffer_commit->GetData();
+
+        Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes,
+                                             Memory::FlushMode::Flush);
+
+        VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
+                                       Memory::GetPointer(framebuffer_addr), data + image_offset,
+                                       true);
+    }
 
     VulkanFence& fence = sync.PrepareExecute(false);
     watches[image_index]->Watch(fence);
 
+    /*
+    const vk::ImageViewCreateInfo image_view_ci({}, image, vk::ImageViewType::e2D,
+                                                    vk::Format::eA8B8G8R8UnormPack32, {},
+                                                    {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+        raw_image_views[i] = device.createImageViewUnique(image_view_ci);
+
+        const vk::SamplerCreateInfo sampler_ci(
+            {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
+            vk::SamplerAddressMode::eClampToBorder, vk::SamplerAddressMode::eClampToBorder,
+            vk::SamplerAddressMode::eClampToBorder, 0.0f, false, 0.0f, false, vk::CompareOp::eNever,
+            0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack, false);
+        raw_samplers[i] = device.createSamplerUnique(sampler_ci);
+    */
+
     // Record blitting.
     vk::CommandBuffer cmdbuf{sync.BeginRecord()};
 
-    const vk::Image raw_image = *raw_images[image_index];
-    SetImageLayout(cmdbuf, raw_image, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eUndefined,
-                   vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eFragmentShader,
-                   vk::PipelineStageFlagBits::eTransfer);
+    if (!use_accelerated) {
+        SetImageLayout(cmdbuf, blit_image, vk::ImageAspectFlagBits::eColor,
+                       vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+                       vk::PipelineStageFlagBits::eFragmentShader,
+                       vk::PipelineStageFlagBits::eTransfer);
 
-    const vk::BufferImageCopy copy(image_offset, 0, 0, {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                                   {0, 0, 0}, {framebuffer.width, framebuffer.height, 1});
-    cmdbuf.copyBufferToImage(*buffer, raw_image, vk::ImageLayout::eTransferDstOptimal, {copy});
+        const vk::BufferImageCopy copy(image_offset, 0, 0,
+                                       {vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
+                                       {framebuffer.width, framebuffer.height, 1});
+        cmdbuf.copyBufferToImage(*buffer, blit_image, vk::ImageLayout::eTransferDstOptimal, {copy});
 
-    SetImageLayout(cmdbuf, raw_image, vk::ImageAspectFlagBits::eColor,
-                   vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
-                   vk::PipelineStageFlagBits::eTransfer,
-                   vk::PipelineStageFlagBits::eFragmentShader);
+        SetImageLayout(
+            cmdbuf, blit_image, vk::ImageAspectFlagBits::eColor,
+            vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
+            vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader);
+    }
 
     const vk::Extent2D size = swapchain.GetSize();
-    const vk::ClearValue clear_color{std::array<f32, 4>{1.0f, 0.0f, 0.0f, 1.0f}};
+    const vk::ClearValue clear_color{std::array<f32, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
     const vk::RenderPassBeginInfo renderpass_bi(*renderpass, *framebuffers[image_index],
                                                 {{0, 0}, size}, 1, &clear_color);
 
@@ -387,7 +422,7 @@ void VulkanBlitScreen::CreateFramebuffers() {
     }
 }
 
-void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index) {
+void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index, vk::ImageView image_view) {
     const vk::DescriptorSet descriptor_set = descriptor_sets[image_index];
 
     const vk::DescriptorBufferInfo buffer_info(*buffer, GetUniformDataOffset(),
@@ -396,8 +431,7 @@ void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index) {
                                            vk::DescriptorType::eUniformBuffer, nullptr,
                                            &buffer_info, nullptr);
 
-    const vk::DescriptorImageInfo image_info(*raw_samplers[image_index],
-                                             *raw_image_views[image_index],
+    const vk::DescriptorImageInfo image_info(*sampler, image_view,
                                              vk::ImageLayout::eShaderReadOnlyOptimal);
     const vk::WriteDescriptorSet sampler_write(descriptor_set, 1, 0, 1,
                                                vk::DescriptorType::eCombinedImageSampler,
@@ -436,8 +470,6 @@ void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuf
 
     raw_images.resize(image_count);
     raw_buffer_commits.resize(image_count);
-    raw_image_views.resize(image_count);
-    raw_samplers.resize(image_count);
 
     for (u32 i = 0; i < image_count; ++i) {
         const vk::ImageCreateInfo image_ci(
@@ -454,19 +486,16 @@ void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuf
 
         device.bindImageMemory(image, raw_buffer_commits[i]->GetMemory(),
                                raw_buffer_commits[i]->GetOffset());
-
-        const vk::ImageViewCreateInfo image_view_ci({}, image, vk::ImageViewType::e2D,
-                                                    vk::Format::eA8B8G8R8UnormPack32, {},
-                                                    {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-        raw_image_views[i] = device.createImageViewUnique(image_view_ci);
-
-        const vk::SamplerCreateInfo sampler_ci(
-            {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
-            vk::SamplerAddressMode::eClampToBorder, vk::SamplerAddressMode::eClampToBorder,
-            vk::SamplerAddressMode::eClampToBorder, 0.0f, false, 0.0f, false, vk::CompareOp::eNever,
-            0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack, false);
-        raw_samplers[i] = device.createSamplerUnique(sampler_ci);
     }
+}
+
+void VulkanBlitScreen::SetUniformData(const Tegra::FramebufferConfig& framebuffer) {
+    const auto& layout = render_window.GetFramebufferLayout();
+    u8* data = buffer_commit->GetData();
+
+    auto* uniform_data = reinterpret_cast<ScreenUniformData*>(data + GetUniformDataOffset());
+    uniform_data->matrix =
+        MakeOrthographicMatrix(static_cast<f32>(layout.width), static_cast<f32>(layout.height));
 }
 
 void VulkanBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer) {

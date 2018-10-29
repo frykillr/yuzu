@@ -35,10 +35,11 @@ VulkanFence& VulkanSync::PrepareExecute(bool take_fence_ownership) {
 void VulkanSync::Execute() {
     vk::SubmitInfo submit_info(0, nullptr, nullptr, static_cast<u32>(current_call->commands.size()),
                                current_call->commands.data(), 1, &current_call->semaphore);
-    if (wait_semaphore) {
-        // TODO(Rodrigo): This could be optimized with an extra argument.
-        const vk::PipelineStageFlags stage_flags = vk::PipelineStageFlagBits::eAllCommands;
 
+    // TODO(Rodrigo): This could be optimized with an extra argument.
+    const vk::PipelineStageFlags stage_flags = vk::PipelineStageFlagBits::eAllCommands;
+
+    if (wait_semaphore) {
         submit_info.waitSemaphoreCount = 1;
         submit_info.pWaitSemaphores = &wait_semaphore;
         submit_info.pWaitDstStageMask = &stage_flags;

@@ -66,20 +66,16 @@ public:
     }
 
 private:
-    bool AllocDevice(u32 type_mask, u64 size);
-    bool AllocHost(u32 type_mask, u64 size);
+    bool AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32 type_mask, u64 size);
 
-    u32 FindBestDeviceLocalType(u32 type_mask) const;
-    u32 FindBestHostVisibleType(u32 type_mask) const;
+    static bool GetMemoryUnified(const vk::PhysicalDeviceMemoryProperties& props);
 
     const vk::Device device;
     const vk::PhysicalDevice physical_device;
     const vk::PhysicalDeviceMemoryProperties props;
-    bool is_memory_unified{};
+    const bool is_memory_unified;
 
-    std::vector<std::unique_ptr<VulkanMemoryAllocation>> device_allocs;
-    std::vector<std::unique_ptr<VulkanMemoryAllocation>> host_allocs;
-
+    std::vector<std::unique_ptr<VulkanMemoryAllocation>> allocs;
     std::mutex mutex;
 };
 

@@ -28,9 +28,7 @@ class VulkanSync;
 struct VulkanScreenInfo {
     u32 width{};
     u32 height{};
-    u64 size_in_bytes{};
-    vk::Image staging_image;
-    const VulkanMemoryCommit* staging_memory;
+    vk::Image image{};
 };
 
 class RendererVulkan : public VideoCore::RendererBase {
@@ -49,16 +47,14 @@ public:
     void ShutDown() override;
 
 private:
-    void CreateRasterizer();
-    bool InitVulkanObjects();
     bool PickDevices();
 
-    static constexpr u64 STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
+    static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
     vk::Instance instance;
     vk::SurfaceKHR surface;
 
-    VulkanScreenInfo screen_info{};
+    VulkanScreenInfo screen_info;
 
     std::unique_ptr<VulkanDevice> device_handler;
     vk::Device device;

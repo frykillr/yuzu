@@ -28,6 +28,8 @@
 #include "video_core/renderer_vulkan/vk_sync.h"
 #include "video_core/utils.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 RendererVulkan::RendererVulkan(Core::Frontend::EmuWindow& window) : RendererBase(window) {}
@@ -49,7 +51,7 @@ void RendererVulkan::SwapBuffers(
         }
 
         swapchain->AcquireNextImage(*present_semaphore);
-        VulkanFence& fence = blit_screen->Draw(*sync, *framebuffer);
+        VulkanFence& fence = blit_screen->Draw(*rasterizer, *sync, *framebuffer);
 
         const vk::Semaphore render_semaphore = sync->QuerySemaphore();
         swapchain->Present(*present_semaphore, render_semaphore, fence);
@@ -64,38 +66,6 @@ void RendererVulkan::SwapBuffers(
 }
 
 bool RendererVulkan::Init() {
-    CreateRasterizer();
-    return InitVulkanObjects();
-}
-
-void RendererVulkan::ShutDown() {
-    if (!device_handler) {
-        return;
-    }
-
-    device.waitIdle();
-
-    device.destroy(screen_info.staging_image);
-
-    blit_screen.reset();
-    sync.reset();
-    swapchain.reset();
-    stream_buffer.reset();
-    resource_manager.reset();
-    memory_manager.reset();
-    present_semaphore.reset();
-
-    device_handler.reset();
-}
-
-void RendererVulkan::CreateRasterizer() {
-    if (rasterizer) {
-        return;
-    }
-    rasterizer = std::make_unique<RasterizerVulkan>(render_window, screen_info);
-}
-
-bool RendererVulkan::InitVulkanObjects() {
     render_window.RetrieveVulkanHandlers(reinterpret_cast<void**>(&instance),
                                          reinterpret_cast<void**>(&surface));
     if (!PickDevices()) {
@@ -121,10 +91,31 @@ bool RendererVulkan::InitVulkanObjects() {
 
     present_semaphore = device.createSemaphoreUnique({});
 
-    blit_screen = std::make_unique<VulkanBlitScreen>(
-        *rasterizer, render_window, *device_handler, *resource_manager, *memory_manager, *swapchain);
+    blit_screen =
+        std::make_unique<VulkanBlitScreen>(render_window, *device_handler, *resource_manager,
+                                           *memory_manager, *swapchain, screen_info);
+
+    rasterizer = std::make_unique<RasterizerVulkan>(render_window, screen_info, *device_handler,
+                                                    *resource_manager, *memory_manager, *sync);
 
     return true;
+}
+
+void RendererVulkan::ShutDown() {
+    if (!device_handler) {
+        return;
+    }
+    device.waitIdle();
+
+    blit_screen.reset();
+    sync.reset();
+    swapchain.reset();
+    stream_buffer.reset();
+    resource_manager.reset();
+    memory_manager.reset();
+    present_semaphore.reset();
+
+    device_handler.reset();
 }
 
 bool RendererVulkan::PickDevices() {
