@@ -200,37 +200,22 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     const bool use_accelerated =
         rasterizer.AccelerateDisplay(framebuffer, framebuffer_addr, framebuffer.stride);
 
-    const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
-    const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
+    if (!use_accelerated) {
+        RefreshRawImages(framebuffer);
+    }
     const u32 image_index = swapchain.GetImageIndex();
-    const vk::Extent2D& framebuffer_size{swapchain.GetSize()};
-
     VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
     // TODO(Rodrigo): Resource manage this.
-    // TODO(Rodrigo): Get format from an image manager.
     const vk::ImageViewCreateInfo image_view_ci({}, blit_image->GetHandle(), vk::ImageViewType::e2D,
-                                                vk::Format::eA8B8G8R8UnormPack32, {},
+                                                blit_image->GetFormat(), {},
                                                 {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
     const vk::ImageView image_view = device.createImageView(image_view_ci);
 
-    RefreshRawImages(framebuffer);
     UpdateDescriptorSet(image_index, image_view);
 
     SetUniformData(framebuffer);
     SetVertexData(framebuffer);
-
-    const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
-    if (!use_accelerated) {
-        u8* data = buffer_commit->GetData();
-
-        Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes,
-                                             Memory::FlushMode::Flush);
-
-        VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
-                                       Memory::GetPointer(framebuffer_addr), data + image_offset,
-                                       true);
-    }
 
     VulkanFence& fence = sync.PrepareExecute(false);
     watches[image_index]->Watch(fence);
@@ -239,6 +224,19 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     vk::CommandBuffer cmdbuf{sync.BeginRecord()};
 
     if (!use_accelerated) {
+        const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
+        u8* data = buffer_commit->GetData();
+
+        const u32 bytes_per_pixel{
+            Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
+        const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
+        Memory::RasterizerFlushVirtualRegion(framebuffer_addr, size_in_bytes,
+                                             Memory::FlushMode::Flush);
+
+        VideoCore::MortonCopyPixels128(framebuffer.width, framebuffer.height, bytes_per_pixel, 4,
+                                       Memory::GetPointer(framebuffer_addr), data + image_offset,
+                                       true);
+
         blit_image->Transition(
             cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
             vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
