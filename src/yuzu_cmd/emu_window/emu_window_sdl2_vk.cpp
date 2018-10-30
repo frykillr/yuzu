@@ -27,7 +27,7 @@ static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTy
                (VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) {
         LOG_DEBUG(Render_Vulkan, message);
     } else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
-        LOG_TRACE(Render_Vulkan, message);
+        LOG_TRACE(Render_Vulkan, "{}", message);
     }
     return VK_FALSE;
 }

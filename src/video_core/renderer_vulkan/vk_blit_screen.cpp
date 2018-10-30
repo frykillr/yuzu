@@ -200,9 +200,8 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     const bool use_accelerated =
         rasterizer.AccelerateDisplay(framebuffer, framebuffer_addr, framebuffer.stride);
 
-    if (!use_accelerated) {
-        RefreshRawImages(framebuffer);
-    }
+    RefreshResources(framebuffer);
+
     const u32 image_index = swapchain.GetImageIndex();
     VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
@@ -423,7 +422,7 @@ void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index, vk::ImageView image_
     device.updateDescriptorSets({ubo_write, sampler_write}, {});
 }
 
-void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuffer) {
+void VulkanBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuffer) {
     if (framebuffer.width == raw_width && framebuffer.height == raw_height && !raw_images.empty()) {
         return;
     }

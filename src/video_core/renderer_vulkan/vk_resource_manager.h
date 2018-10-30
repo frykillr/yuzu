@@ -29,7 +29,7 @@ protected:
      * @param signaling_fence Fence that signals its usage end.
      * @remarks Thread safe.
      */
-    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence) = 0;
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence) = 0;
 };
 
 /**
@@ -70,7 +70,7 @@ public:
     vk::Semaphore WriteProtect(VulkanFence& new_fence);
 
 protected:
-    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence);
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence);
 
 private:
     VulkanResourceManager& resource_manager;
@@ -88,7 +88,26 @@ private:
 };
 
 /**
- * Transient resources are those you just use and discard for reusage. A simple example of this are
+ * One shot resources are those that are created and discarded after usage. An example of these are
+ * renderpasses.
+ */
+class VulkanResourceOneShot : public VulkanResource {
+public:
+    explicit VulkanResourceOneShot();
+    virtual ~VulkanResourceOneShot();
+
+    bool IsSignaled() const;
+
+protected:
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence) override;
+
+private:
+    bool is_signaled{};
+    mutable std::mutex mutex;
+};
+
+/**
+ * Transient resources are those you just use and discard for reusage. An example of this are
  * semaphores and command buffers.
  */
 class VulkanResourceTransient : public VulkanResource {
@@ -114,7 +133,7 @@ public:
     void Commit(VulkanFence& commit_fence);
 
 protected:
-    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence) override;
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence) override;
 
 private:
     /// Backend for TryCommit and Commit, thread unsafe.
@@ -128,19 +147,34 @@ private:
 };
 
 template <typename T>
-class VulkanResourceEntry final : public VulkanResourceTransient {
+class VulkanResourceTransientEntry final : public VulkanResourceTransient {
 public:
-    VulkanResourceEntry(T resource, vk::Device device)
+    VulkanResourceTransientEntry(T resource, vk::Device device)
         : VulkanResourceTransient(device), resource(std::move(resource)) {}
-    virtual ~VulkanResourceEntry() = default;
+    virtual ~VulkanResourceTransientEntry() = default;
 
     /// Retreives the resource.
-    T& Get() {
+    T& GetHandle() {
         return resource;
     }
 
 private:
     T resource;
+};
+
+template <typename T>
+class VulkanResourceOneShotEntry final : public VulkanResourceOneShot {
+public:
+    VulkanResourceOneShotEntry(vk::UniqueHandle<T> resource) : resource(std::move(resource)) {}
+    virtual ~VulkanResourceOneShotEntry() = default;
+
+    /// Retreives the resource.
+    T GetHandle() const {
+        return *resource;
+    }
+
+private:
+    vk::UniqueHandle<T> resource;
 };
 
 /**
@@ -245,7 +279,7 @@ public:
     void Watch(VulkanFence& new_fence);
 
 protected:
-    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence);
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence);
 
 private:
     VulkanFence* fence{};
@@ -269,17 +303,23 @@ public:
 
     vk::Semaphore CommitSemaphore(VulkanFence& fence);
 
+    vk::RenderPass CreateRenderPass(VulkanFence& fence,
+                                    const vk::RenderPassCreateInfo& renderpass_ci);
+
 private:
     template <typename T>
-    using ResourceVector = std::vector<std::unique_ptr<VulkanResourceEntry<T>>>;
+    using ResourceVector = std::vector<std::unique_ptr<VulkanResourceTransientEntry<T>>>;
+
+    using RenderPassEntry = VulkanResourceOneShotEntry<vk::RenderPass>;
 
     template <typename T>
     T& CommitFreeResource(ResourceVector<T>& resources, VulkanFence& commit_fence);
 
+    void TickCreations();
+
     void GrowFences(std::size_t new_fences_count);
 
     void CreateCommands();
-    void CreateDescriptors();
     void CreateSemaphores();
 
     const vk::Device device;
@@ -295,6 +335,10 @@ private:
     ResourceVector<vk::DescriptorSet> descriptor_set;
 
     ResourceVector<vk::UniqueSemaphore> semaphores;
+
+    u32 tick_creations{};
+
+    std::vector<std::unique_ptr<RenderPassEntry>> renderpasses;
 };
 
 } // namespace Vulkan

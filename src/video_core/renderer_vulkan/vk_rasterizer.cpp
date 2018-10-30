@@ -10,6 +10,7 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 
 #pragma optimize("", off)
@@ -81,8 +82,7 @@ void RasterizerVulkan::Clear() {
     const vk::RenderPassCreateInfo renderpass_ci({}, 1, &color_attachment, 1, &subpass_description,
                                                  1, &subpass_dependency);
 
-    // TODO(Rodrigo): Resource manage this.
-    vk::RenderPass renderpass = device.createRenderPass(renderpass_ci);
+    vk::RenderPass renderpass = resource_manager.CreateRenderPass(fence, renderpass_ci);
 
     // TODO(Rodrigo): Apply color mask here.
     const vk::ImageViewCreateInfo image_view_ci = color_surface->GetImageViewCreateInfo(
@@ -99,11 +99,12 @@ void RasterizerVulkan::Clear() {
     // TODO(Rodrigo): Resource manage this.
     const vk::Framebuffer framebuffer = device.createFramebuffer(framebuffer_ci);
 
-    color_surface->UpdateLayout(vk::ImageLayout::eColorAttachmentOptimal,
-                                vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                vk::AccessFlagBits::eColorAttachmentWrite);
-
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
+
+    color_surface->Transition(cmdbuf, vk::ImageAspectFlagBits::eColor,
+                              vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                              vk::AccessFlagBits::eColorAttachmentWrite);
 
     const vk::ClearValue clear_color(std::array<float, 4>{
         regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});

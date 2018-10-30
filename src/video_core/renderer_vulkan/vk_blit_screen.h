@@ -57,7 +57,7 @@ private:
     void CreateFramebuffers();
 
     void UpdateDescriptorSet(u32 image_index, vk::ImageView image_view);
-    void RefreshRawImages(const Tegra::FramebufferConfig& framebuffer);
+    void RefreshResources(const Tegra::FramebufferConfig& framebuffer);
     void SetUniformData(const Tegra::FramebufferConfig& framebuffer);
     void SetVertexData(const Tegra::FramebufferConfig& framebuffer);
 

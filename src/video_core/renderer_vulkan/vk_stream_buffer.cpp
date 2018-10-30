@@ -36,7 +36,7 @@ public:
     }
 
 protected:
-    virtual void NotifyFenceRemoval(VulkanFence* signaling_fence) {
+    virtual void OnFenceRemoval(VulkanFence* signaling_fence) {
         std::unique_lock lock(mutex);
 
         ASSERT(signaling_fence == fence);

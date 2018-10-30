@@ -10,6 +10,8 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune these numbers.
@@ -18,6 +20,9 @@ constexpr u32 SEMAPHORES_COUNT = 0x1000;
 
 constexpr u32 FENCES_COUNT = 0x2000;
 constexpr u32 FENCES_GROW_STEP = 0x1000;
+
+constexpr u32 TICKS_TO_DESTROY = 0x10;
+constexpr std::size_t OBJECTS_TO_DESTROY = 0x10;
 
 VulkanResource::VulkanResource() = default;
 
@@ -78,7 +83,7 @@ vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
     return *write_semaphore;
 }
 
-void VulkanResourcePersistent::NotifyFenceRemoval(VulkanFence* signaling_fence) {
+void VulkanResourcePersistent::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(fence_change_mutex);
 
     if (write_fence == signaling_fence) {
@@ -88,6 +93,22 @@ void VulkanResourcePersistent::NotifyFenceRemoval(VulkanFence* signaling_fence) 
     if (it != read_fences.end()) {
         read_fences.erase(it);
     }
+}
+
+VulkanResourceOneShot::VulkanResourceOneShot() = default;
+
+VulkanResourceOneShot::~VulkanResourceOneShot() {
+    ASSERT_MSG(is_signaled, "Destroying a one shot resource that's still marked as used");
+}
+
+bool VulkanResourceOneShot::IsSignaled() const {
+    std::unique_lock lock(mutex);
+    return is_signaled;
+}
+
+void VulkanResourceOneShot::OnFenceRemoval(VulkanFence* signaling_fence) {
+    std::unique_lock lock(mutex);
+    is_signaled = true;
 }
 
 VulkanResourceTransient::VulkanResourceTransient(vk::Device device)
@@ -109,7 +130,7 @@ void VulkanResourceTransient::Commit(VulkanFence& commit_fence) {
     ASSERT_MSG(available, "Unexpected race condition");
 }
 
-void VulkanResourceTransient::NotifyFenceRemoval(VulkanFence* signaling_fence) {
+void VulkanResourceTransient::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
     ASSERT(fence && fence == signaling_fence);
     ASSERT(is_claimed);
@@ -190,7 +211,7 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
 
     // Broadcast resources their free state.
     for (auto* resource : protected_resources) {
-        resource->NotifyFenceRemoval(this);
+        resource->OnFenceRemoval(this);
     }
     // TODO(Rodrigo): Find a way to preserve vector's allocated memory.
     protected_resources.clear();
@@ -243,7 +264,7 @@ void VulkanFenceWatch::Watch(VulkanFence& new_fence) {
     fence->Protect(this);
 }
 
-void VulkanFenceWatch::NotifyFenceRemoval(VulkanFence* signaling_fence) {
+void VulkanFenceWatch::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
     fence = nullptr;
 }
@@ -256,7 +277,14 @@ VulkanResourceManager::VulkanResourceManager(const VulkanDevice& device_handler)
     CreateSemaphores();
 }
 
-VulkanResourceManager::~VulkanResourceManager() = default;
+VulkanResourceManager::~VulkanResourceManager() {
+    // There may be owned fences here (e.g. present fences), forcefully release them. It's safe
+    // since device must be idle before destroying the resource manager.
+    std::for_each(fences.begin(), fences.end(), [](auto& fence) {
+        fence->Release();
+        fence->Tick(true, true);
+    });
+}
 
 VulkanFence& VulkanResourceManager::CommitFence() {
     std::unique_lock lock(fences_mutex);
@@ -299,6 +327,20 @@ vk::Semaphore VulkanResourceManager::CommitSemaphore(VulkanFence& fence) {
     return *CommitFreeResource(semaphores, fence);
 }
 
+vk::RenderPass VulkanResourceManager::CreateRenderPass(
+    VulkanFence& fence, const vk::RenderPassCreateInfo& renderpass_ci) {
+
+    TickCreations();
+
+    auto renderpass =
+        std::make_unique<RenderPassEntry>(device.createRenderPassUnique(renderpass_ci));
+    fence.Protect(renderpass.get());
+    const auto handle = renderpass->GetHandle();
+
+    renderpasses.push_back(std::move(renderpass));
+    return handle;
+}
+
 template <typename T>
 T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
                                              VulkanFence& commit_fence) {
@@ -307,12 +349,25 @@ T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
     for (std::size_t i = 0; i < resources.size(); ++i) {
         auto& resource = resources[i];
         if (resource->TryCommit(commit_fence)) {
-            return resource->Get();
+            return resource->GetHandle();
         }
     }
     auto& resource = resources[0];
     resource->Commit(commit_fence);
-    return resource->Get();
+    return resource->GetHandle();
+}
+
+void VulkanResourceManager::TickCreations() {
+    if (++tick_creations < TICKS_TO_DESTROY) {
+        return;
+    }
+    tick_creations = 0;
+
+    const auto end = renderpasses.begin() + std::min(OBJECTS_TO_DESTROY, renderpasses.size());
+    renderpasses.erase(
+        std::remove_if(renderpasses.begin(), end,
+                       [](const auto& renderpass) { return renderpass->IsSignaled(); }),
+        end);
 }
 
 void VulkanResourceManager::GrowFences(std::size_t new_fences_count) {
@@ -340,7 +395,7 @@ void VulkanResourceManager::CreateCommands() {
     command_buffers.resize(COMMAND_BUFFERS_COUNT);
     for (u32 i = 0; i < COMMAND_BUFFERS_COUNT; ++i) {
         command_buffers[i] =
-            std::make_unique<VulkanResourceEntry<vk::CommandBuffer>>(cmdbufs[i], device);
+            std::make_unique<VulkanResourceTransientEntry<vk::CommandBuffer>>(cmdbufs[i], device);
     }
 }
 
@@ -348,7 +403,7 @@ void VulkanResourceManager::CreateSemaphores() {
     semaphores.resize(SEMAPHORES_COUNT);
     for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
         const vk::SemaphoreCreateInfo semaphore_ci;
-        semaphores[i] = std::make_unique<VulkanResourceEntry<vk::UniqueSemaphore>>(
+        semaphores[i] = std::make_unique<VulkanResourceTransientEntry<vk::UniqueSemaphore>>(
             device.createSemaphoreUnique(semaphore_ci), device);
     }
 }
