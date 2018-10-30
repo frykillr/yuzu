@@ -14,6 +14,7 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_blit_screen.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_image.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
@@ -204,11 +205,11 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     const u32 image_index = swapchain.GetImageIndex();
     const vk::Extent2D& framebuffer_size{swapchain.GetSize()};
 
-    const vk::Image blit_image = use_accelerated ? screen_info.image : *raw_images[image_index];
+    VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
     // TODO(Rodrigo): Resource manage this.
     // TODO(Rodrigo): Get format from an image manager.
-    const vk::ImageViewCreateInfo image_view_ci({}, blit_image, vk::ImageViewType::e2D,
+    const vk::ImageViewCreateInfo image_view_ci({}, blit_image->GetHandle(), vk::ImageViewType::e2D,
                                                 vk::Format::eA8B8G8R8UnormPack32, {},
                                                 {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
     const vk::ImageView image_view = device.createImageView(image_view_ci);
@@ -234,39 +235,23 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     VulkanFence& fence = sync.PrepareExecute(false);
     watches[image_index]->Watch(fence);
 
-    /*
-    const vk::ImageViewCreateInfo image_view_ci({}, image, vk::ImageViewType::e2D,
-                                                    vk::Format::eA8B8G8R8UnormPack32, {},
-                                                    {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-        raw_image_views[i] = device.createImageViewUnique(image_view_ci);
-
-        const vk::SamplerCreateInfo sampler_ci(
-            {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear,
-            vk::SamplerAddressMode::eClampToBorder, vk::SamplerAddressMode::eClampToBorder,
-            vk::SamplerAddressMode::eClampToBorder, 0.0f, false, 0.0f, false, vk::CompareOp::eNever,
-            0.0f, 0.0f, vk::BorderColor::eFloatOpaqueBlack, false);
-        raw_samplers[i] = device.createSamplerUnique(sampler_ci);
-    */
-
     // Record blitting.
     vk::CommandBuffer cmdbuf{sync.BeginRecord()};
 
     if (!use_accelerated) {
-        SetImageLayout(cmdbuf, blit_image, vk::ImageAspectFlagBits::eColor,
-                       vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
-                       vk::PipelineStageFlagBits::eFragmentShader,
-                       vk::PipelineStageFlagBits::eTransfer);
+        blit_image->Transition(
+            cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
+            vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
         const vk::BufferImageCopy copy(image_offset, 0, 0,
                                        {vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
                                        {framebuffer.width, framebuffer.height, 1});
-        cmdbuf.copyBufferToImage(*buffer, blit_image, vk::ImageLayout::eTransferDstOptimal, {copy});
-
-        SetImageLayout(
-            cmdbuf, blit_image, vk::ImageAspectFlagBits::eColor,
-            vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
-            vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader);
+        cmdbuf.copyBufferToImage(*buffer, blit_image->GetHandle(),
+                                 vk::ImageLayout::eTransferDstOptimal, {copy});
     }
+    blit_image->Transition(
+        cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eShaderReadOnlyOptimal,
+        vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eShaderRead);
 
     const vk::Extent2D size = swapchain.GetSize();
     const vk::ClearValue clear_color{std::array<f32, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -478,8 +463,8 @@ void VulkanBlitScreen::RefreshRawImages(const Tegra::FramebufferConfig& framebuf
             vk::ImageTiling::eLinear,
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
-        raw_images[i] = device.createImageUnique(image_ci);
-        const vk::Image image = *raw_images[i];
+        raw_images[i] = std::make_unique<VulkanImage>(device, image_ci);
+        const vk::Image image = raw_images[i]->GetHandle();
 
         raw_buffer_commits[i] =
             memory_manager.Commit(device.getImageMemoryRequirements(image), false);

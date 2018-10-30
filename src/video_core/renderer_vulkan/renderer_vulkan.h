@@ -21,6 +21,7 @@ class VulkanResourceManager;
 class VulkanStreamBuffer;
 class VulkanSwapchain;
 class VulkanSync;
+class VulkanImage;
 
 class VulkanSwapchain;
 class VulkanSync;
@@ -28,7 +29,7 @@ class VulkanSync;
 struct VulkanScreenInfo {
     u32 width{};
     u32 height{};
-    vk::Image image{};
+    VulkanImage* image{};
 };
 
 class RendererVulkan : public VideoCore::RendererBase {

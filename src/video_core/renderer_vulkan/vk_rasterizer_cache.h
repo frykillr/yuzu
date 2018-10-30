@@ -16,6 +16,7 @@
 #include "common/logging/log.h"
 #include "common/math_util.h"
 #include "video_core/rasterizer_cache.h"
+#include "video_core/renderer_vulkan/vk_image.h"
 #include "video_core/surface.h"
 #include "video_core/textures/decoders.h"
 
@@ -87,7 +88,7 @@ struct SurfaceParams {
     std::size_t size_in_bytes_vk;
 };
 
-class CachedSurface final : public RasterizerCacheObject {
+class CachedSurface final : public RasterizerCacheObject, public VulkanImage {
 public:
     explicit CachedSurface(VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
                            VulkanMemoryManager& memory_manager, const SurfaceParams& params);
@@ -109,10 +110,6 @@ public:
         FlushVKBuffer();
     }
 
-    vk::Image GetImage() {
-        return *image;
-    }
-
     const SurfaceParams& GetSurfaceParams() const {
         return params;
     }
@@ -120,13 +117,6 @@ public:
     vk::Format GetFormat() const {
         return format;
     }
-
-    /*
-    Surface RasterizerCacheOpenGL::TryFindFramebufferSurface(VAddr addr) const {
-    return TryGet(addr);
-}
-    */
-
 
     // Read/Write data in Switch memory to/from vk_buffer
     void LoadVKBuffer();
@@ -142,7 +132,7 @@ private:
     const SurfaceParams params;
     const std::size_t buffer_size;
 
-    vk::UniqueImage image;
+    vk::Image image;
     const VulkanMemoryCommit* image_commit{};
 
     vk::UniqueBuffer buffer;

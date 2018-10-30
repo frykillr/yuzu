@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vulkan/vulkan.hpp>
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
@@ -29,6 +30,7 @@ class VulkanMemoryCommit;
 class VulkanMemoryManager;
 class VulkanSwapchain;
 class VulkanSync;
+class VulkanImage;
 
 class VulkanBlitScreen final {
 public:
@@ -88,7 +90,7 @@ private:
 
     std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
 
-    std::vector<vk::UniqueImage> raw_images;
+    std::vector<std::unique_ptr<VulkanImage>> raw_images;
     std::vector<const VulkanMemoryCommit*> raw_buffer_commits;
     u32 raw_width{}, raw_height{};
 };

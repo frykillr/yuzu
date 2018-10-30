@@ -183,9 +183,8 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
     // TODO(Rodrigo): Add depth attachment or color attachment depending on format
-    const auto usage = vk::ImageUsageFlagBits::eColorAttachment |
-                       vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
-                       vk::ImageUsageFlagBits::eTransferSrc;
+    const auto usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled |
+                       vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc;
     return {{},
             SurfaceTargetToImageVK(target),
             GetFormatVK(pixel_format, component_type).format,
@@ -203,13 +202,14 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
 
 CachedSurface::CachedSurface(VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
                              VulkanMemoryManager& memory_manager, const SurfaceParams& params)
-    : device(device_handler.GetLogical()), resource_manager(resource_manager),
+    : VulkanImage(device_handler.GetLogical(), params.CreateInfo()),
+      device(device_handler.GetLogical()), resource_manager(resource_manager),
       memory_manager(memory_manager), params(params), cached_size_in_bytes(params.size_in_bytes),
       buffer_size(std::max(params.size_in_bytes, params.size_in_bytes_vk)) {
 
-    image = device.createImageUnique(params.CreateInfo());
-    image_commit = memory_manager.Commit(device.getImageMemoryRequirements(*image), false);
-    device.bindImageMemory(*image, image_commit->GetMemory(), image_commit->GetOffset());
+    image = GetHandle();
+    image_commit = memory_manager.Commit(device.getImageMemoryRequirements(image), false);
+    device.bindImageMemory(image, image_commit->GetMemory(), image_commit->GetOffset());
 
     const vk::BufferCreateInfo buffer_ci({}, buffer_size,
                                          vk::BufferUsageFlagBits::eTransferDst |
@@ -240,7 +240,7 @@ vk::ImageViewCreateInfo CachedSurface::GetImageViewCreateInfo(
     const vk::ImageSubresourceRange& subresource_range) const {
 
     return {{},
-            *image,
+            image,
             SurfaceTargetToImageViewVK(params.target),
             GetFormatVK(params.pixel_format, params.component_type).format,
             component_mapping,

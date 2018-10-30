@@ -87,25 +87,6 @@ private:
     std::mutex fence_change_mutex;     ///< Protects internal changes in the owned fences.
 };
 
-template <typename T>
-class VulkanResourcePersistentEntry : public VulkanResourcePersistent {
-public:
-    VulkanResourcePersistentEntry(VulkanResourceManager& resource_manager, vk::Device device,
-                                  std::mutex& external_fences_mutex, vk::UniqueHandle<T> handle)
-        : VulkanResourcePersistent(resource_manager, device, external_fences_mutex),
-          handle(std::move(handle)) {}
-    ~VulkanResourcePersistentEntry() = default;
-
-    T GetHandle() const {
-        return *handle;
-    }
-
-private:
-    vk::UniqueHandle<T> handle;
-};
-
-using VulkanImage = VulkanResourcePersistentEntry<vk::Image>;
-
 /**
  * Transient resources are those you just use and discard for reusage. A simple example of this are
  * semaphores and command buffers.
@@ -287,8 +268,6 @@ public:
     vk::CommandBuffer CommitCommandBuffer(VulkanFence& fence);
 
     vk::Semaphore CommitSemaphore(VulkanFence& fence);
-
-    std::unique_ptr<VulkanImage> CreateImage(const vk::ImageCreateInfo& image_ci);
 
 private:
     template <typename T>

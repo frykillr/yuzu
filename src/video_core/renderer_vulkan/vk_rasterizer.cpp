@@ -99,6 +99,10 @@ void RasterizerVulkan::Clear() {
     // TODO(Rodrigo): Resource manage this.
     const vk::Framebuffer framebuffer = device.createFramebuffer(framebuffer_ci);
 
+    color_surface->UpdateLayout(vk::ImageLayout::eColorAttachmentOptimal,
+                                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                vk::AccessFlagBits::eColorAttachmentWrite);
+
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 
     const vk::ClearValue clear_color(std::array<float, 4>{
@@ -142,7 +146,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     ASSERT_MSG(params.height == config.height, "Framebuffer height is different");
     ASSERT_MSG(params.pixel_format == pixel_format, "Framebuffer pixel_format is different");
 
-    screen_info.image = surface->GetImage();
+    screen_info.image = surface.get();
 
     return true;
 }

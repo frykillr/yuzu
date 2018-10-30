@@ -90,6 +90,8 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_swapchain.h
         renderer_vulkan/vk_sync.cpp
         renderer_vulkan/vk_sync.h
+        renderer_vulkan/vk_image.cpp
+        renderer_vulkan/vk_image.h
         renderer_vulkan/vk_memory_manager.cpp
         renderer_vulkan/vk_memory_manager.h
         renderer_vulkan/vk_helper.cpp

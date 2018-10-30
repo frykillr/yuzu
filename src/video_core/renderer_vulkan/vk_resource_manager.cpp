@@ -299,13 +299,6 @@ vk::Semaphore VulkanResourceManager::CommitSemaphore(VulkanFence& fence) {
     return *CommitFreeResource(semaphores, fence);
 }
 
-std::unique_ptr<VulkanImage> VulkanResourceManager::CreateImage(
-    const vk::ImageCreateInfo& image_ci) {
-
-    return std::make_unique<VulkanImage>(*this, device, fences_mutex,
-                                         device.createImageUnique(image_ci));
-}
-
 template <typename T>
 T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
                                              VulkanFence& commit_fence) {
