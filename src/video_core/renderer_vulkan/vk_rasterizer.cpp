@@ -89,15 +89,11 @@ void RasterizerVulkan::Clear() {
         {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
          vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
         {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-    // TODO(Rodrigo): Resource manage this.
-    const vk::ImageView image_view = device.createImageView(image_view_ci);
+    const vk::ImageView image_view = resource_manager.CreateImageView(fence, image_view_ci);
 
     const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, 1, &image_view,
                                                    color_params.width, color_params.height, 1);
-
-    // TODO(Rodrigo): Resource manage this.
-    const vk::Framebuffer framebuffer = device.createFramebuffer(framebuffer_ci);
+    const vk::Framebuffer framebuffer = resource_manager.CreateFramebuffer(fence, framebuffer_ci);
 
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 

@@ -203,21 +203,20 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     RefreshResources(framebuffer);
 
     const u32 image_index = swapchain.GetImageIndex();
+    VulkanFence& fence = sync.PrepareExecute(false);
+    watches[image_index]->Watch(fence);
+
     VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
-    // TODO(Rodrigo): Resource manage this.
     const vk::ImageViewCreateInfo image_view_ci({}, blit_image->GetHandle(), vk::ImageViewType::e2D,
                                                 blit_image->GetFormat(), {},
                                                 {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-    const vk::ImageView image_view = device.createImageView(image_view_ci);
+    const vk::ImageView image_view = resource_manager.CreateImageView(fence, image_view_ci);
 
     UpdateDescriptorSet(image_index, image_view);
 
     SetUniformData(framebuffer);
     SetVertexData(framebuffer);
-
-    VulkanFence& fence = sync.PrepareExecute(false);
-    watches[image_index]->Watch(fence);
 
     // Record blitting.
     vk::CommandBuffer cmdbuf{sync.BeginRecord()};

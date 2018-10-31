@@ -327,15 +327,18 @@ vk::Semaphore VulkanResourceManager::CommitSemaphore(VulkanFence& fence) {
 vk::RenderPass VulkanResourceManager::CreateRenderPass(
     VulkanFence& fence, const vk::RenderPassCreateInfo& renderpass_ci) {
 
-    TickCreations();
+    return CreateOneShot(fence, renderpasses, device.createRenderPassUnique(renderpass_ci));
+}
 
-    auto renderpass =
-        std::make_unique<RenderPassEntry>(device.createRenderPassUnique(renderpass_ci));
-    fence.Protect(renderpass.get());
-    const auto handle = renderpass->GetHandle();
+vk::ImageView VulkanResourceManager::CreateImageView(VulkanFence& fence,
+                                                     const vk::ImageViewCreateInfo& image_view_ci) {
+    return CreateOneShot(fence, image_views, device.createImageViewUnique(image_view_ci));
+}
 
-    renderpasses.push_back(std::move(renderpass));
-    return handle;
+vk::Framebuffer VulkanResourceManager::CreateFramebuffer(
+    VulkanFence& fence, const vk::FramebufferCreateInfo& framebuffer_ci) {
+
+    return CreateOneShot(fence, framebuffers, device.createFramebufferUnique(framebuffer_ci));
 }
 
 template <typename T>
@@ -354,17 +357,31 @@ T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
     return resource->GetHandle();
 }
 
+template <typename EntryType, typename HandleType>
+HandleType VulkanResourceManager::CreateOneShot(VulkanFence& fence,
+                                                std::vector<std::unique_ptr<EntryType>>& vector,
+                                                vk::UniqueHandle<HandleType> handle) {
+    std::unique_lock lock(one_shots);
+    TickCreations();
+
+    const auto handle_value = *handle;
+    auto entry = std::make_unique<EntryType>(std::move(handle));
+    fence.Protect(entry.get());
+    vector.push_back(std::move(entry));
+    return handle_value;
+}
+
 void VulkanResourceManager::TickCreations() {
     if (++tick_creations < TICKS_TO_DESTROY) {
         return;
     }
     tick_creations = 0;
 
-    const auto end = renderpasses.begin() + std::min(OBJECTS_TO_DESTROY, renderpasses.size());
+    /*const auto end = renderpasses.begin() + std::min(OBJECTS_TO_DESTROY, renderpasses.size());
     renderpasses.erase(
         std::remove_if(renderpasses.begin(), end,
                        [](const auto& renderpass) { return renderpass->IsSignaled(); }),
-        end);
+        end);*/
 }
 
 void VulkanResourceManager::GrowFences(std::size_t new_fences_count) {

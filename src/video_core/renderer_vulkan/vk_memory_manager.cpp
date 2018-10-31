@@ -52,13 +52,15 @@ public:
             }
         }
         u8* address = is_mappeable ? base_address + *found : nullptr;
-        auto* commit = new VulkanMemoryCommit(this, memory, address, *found, *found + commit_size);
-        commits.push_back(std::unique_ptr<VulkanMemoryCommit>(commit));
+        auto commit = std::make_unique<VulkanMemoryCommit>(this, memory, address, *found,
+                                                           *found + commit_size);
+        const auto* commit_ptr = commit.get();
+        commits.push_back(std::move(commit));
 
         // Last commit's address is highly probable to be free.
         free_iterator = *found + commit_size;
 
-        return commit;
+        return commit_ptr;
     }
 
     void Free(const VulkanMemoryCommit* commit) {
@@ -67,7 +69,7 @@ public:
             std::find_if(commits.begin(), commits.end(),
                          [&](const auto& stored_commit) { return stored_commit.get() == commit; });
         if (it == commits.end()) {
-            LOG_CRITICAL(Render_Vulkan, "Freeing unallocated commit!");
+            LOG_ERROR(Render_Vulkan, "Freeing unallocated commit!");
             UNREACHABLE();
             return;
         }

@@ -312,14 +312,25 @@ public:
     vk::RenderPass CreateRenderPass(VulkanFence& fence,
                                     const vk::RenderPassCreateInfo& renderpass_ci);
 
+    vk::ImageView CreateImageView(VulkanFence& fence, const vk::ImageViewCreateInfo& image_view_ci);
+
+    vk::Framebuffer CreateFramebuffer(VulkanFence& fence,
+                                      const vk::FramebufferCreateInfo& framebuffer_ci);
+
 private:
     template <typename T>
     using ResourceVector = std::vector<std::unique_ptr<Resource::TransientEntry<T>>>;
 
     using RenderPassEntry = Resource::OneShotEntry<vk::RenderPass>;
+    using ImageViewEntry = Resource::OneShotEntry<vk::ImageView>;
+    using FramebufferEntry = Resource::OneShotEntry<vk::Framebuffer>;
 
     template <typename T>
     T& CommitFreeResource(ResourceVector<T>& resources, VulkanFence& commit_fence);
+
+    template <typename EntryType, typename HandleType>
+    HandleType CreateOneShot(VulkanFence& fence, std::vector<std::unique_ptr<EntryType>>& vector,
+                             vk::UniqueHandle<HandleType> handle);
 
     void TickCreations();
 
@@ -342,9 +353,12 @@ private:
 
     ResourceVector<vk::UniqueSemaphore> semaphores;
 
+    std::mutex one_shots;
     u32 tick_creations{};
 
     std::vector<std::unique_ptr<RenderPassEntry>> renderpasses;
+    std::vector<std::unique_ptr<ImageViewEntry>> image_views;
+    std::vector<std::unique_ptr<FramebufferEntry>> framebuffers;
 };
 
 } // namespace Vulkan

@@ -107,6 +107,7 @@ void RendererVulkan::ShutDown() {
     }
     device.waitIdle();
 
+    rasterizer.reset();
     blit_screen.reset();
     sync.reset();
     swapchain.reset();

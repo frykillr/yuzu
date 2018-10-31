@@ -63,12 +63,8 @@ VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
 }
 
 VulkanStreamBuffer::~VulkanStreamBuffer() {
-    if (device_commit) {
-        memory_manager.Free(device_commit);
-    }
-    if (mappeable_commit) {
-        memory_manager.Free(mappeable_commit);
-    }
+    memory_manager.Free(device_commit);
+    memory_manager.Free(mappeable_commit);
 }
 
 std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, bool keep_in_host) {
