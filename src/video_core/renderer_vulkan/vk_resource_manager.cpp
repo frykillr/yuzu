@@ -377,11 +377,17 @@ void VulkanResourceManager::TickCreations() {
     }
     tick_creations = 0;
 
-    /*const auto end = renderpasses.begin() + std::min(OBJECTS_TO_DESTROY, renderpasses.size());
-    renderpasses.erase(
-        std::remove_if(renderpasses.begin(), end,
-                       [](const auto& renderpass) { return renderpass->IsSignaled(); }),
-        end);*/
+    RemoveEntries(renderpasses);
+    RemoveEntries(image_views);
+    RemoveEntries(framebuffers);
+}
+
+template <typename T>
+void VulkanResourceManager::RemoveEntries(std::vector<T>& entries) {
+    const auto end = entries.begin() + std::min(OBJECTS_TO_DESTROY, entries.size());
+    entries.erase(
+        std::remove_if(entries.begin(), end, [](const auto& entry) { return entry->IsSignaled(); }),
+        end);
 }
 
 void VulkanResourceManager::GrowFences(std::size_t new_fences_count) {

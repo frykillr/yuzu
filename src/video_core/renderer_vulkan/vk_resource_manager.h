@@ -334,6 +334,9 @@ private:
 
     void TickCreations();
 
+    template <typename T>
+    void RemoveEntries(std::vector<T>& entries);
+
     void GrowFences(std::size_t new_fences_count);
 
     void CreateCommands();
