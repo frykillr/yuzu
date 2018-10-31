@@ -16,12 +16,14 @@ class VulkanDevice;
 class VulkanFence;
 class VulkanResourceManager;
 
-class VulkanResource {
+namespace Resource {
+
+class Base {
     friend class VulkanFence;
 
 public:
-    explicit VulkanResource();
-    virtual ~VulkanResource() = 0;
+    explicit Base();
+    virtual ~Base() = 0;
 
 protected:
     /**
@@ -36,13 +38,13 @@ protected:
  * Persistent resources are those that have a prolonged lifetime and you can read and write to them.
  * An use case example for this kind of resource are images.
  */
-class VulkanResourcePersistent : public VulkanResource {
+class Persistent : public Base {
     friend class VulkanResourceManager;
 
 public:
-    explicit VulkanResourcePersistent(VulkanResourceManager& resource_manager, vk::Device device,
-                                      std::mutex& external_fences_mutex);
-    virtual ~VulkanResourcePersistent();
+    explicit Persistent(VulkanResourceManager& resource_manager, vk::Device device,
+                        std::mutex& external_fences_mutex);
+    virtual ~Persistent();
 
     /**
      * Waits for all operations to finish.
@@ -91,10 +93,10 @@ private:
  * One shot resources are those that are created and discarded after usage. An example of these are
  * renderpasses.
  */
-class VulkanResourceOneShot : public VulkanResource {
+class OneShot : public Base {
 public:
-    explicit VulkanResourceOneShot();
-    virtual ~VulkanResourceOneShot();
+    explicit OneShot();
+    virtual ~OneShot();
 
     bool IsSignaled() const;
 
@@ -110,12 +112,12 @@ private:
  * Transient resources are those you just use and discard for reusage. An example of this are
  * semaphores and command buffers.
  */
-class VulkanResourceTransient : public VulkanResource {
+class Transient : public Base {
     friend class VulkanResourceManager;
 
 public:
-    explicit VulkanResourceTransient(vk::Device device);
-    virtual ~VulkanResourceTransient();
+    explicit Transient(vk::Device device);
+    virtual ~Transient();
 
     /**
      * Tries to reserve usage of the resource.
@@ -147,11 +149,11 @@ private:
 };
 
 template <typename T>
-class VulkanResourceTransientEntry final : public VulkanResourceTransient {
+class TransientEntry final : public Transient {
 public:
-    VulkanResourceTransientEntry(T resource, vk::Device device)
-        : VulkanResourceTransient(device), resource(std::move(resource)) {}
-    virtual ~VulkanResourceTransientEntry() = default;
+    TransientEntry(T resource, vk::Device device)
+        : Transient(device), resource(std::move(resource)) {}
+    virtual ~TransientEntry() = default;
 
     /// Retreives the resource.
     T& GetHandle() {
@@ -163,10 +165,10 @@ private:
 };
 
 template <typename T>
-class VulkanResourceOneShotEntry final : public VulkanResourceOneShot {
+class OneShotEntry final : public OneShot {
 public:
-    VulkanResourceOneShotEntry(vk::UniqueHandle<T> resource) : resource(std::move(resource)) {}
-    virtual ~VulkanResourceOneShotEntry() = default;
+    OneShotEntry(vk::UniqueHandle<T> resource) : resource(std::move(resource)) {}
+    virtual ~OneShotEntry() = default;
 
     /// Retreives the resource.
     T GetHandle() const {
@@ -177,6 +179,10 @@ private:
     vk::UniqueHandle<T> resource;
 };
 
+} // namespace Resource
+
+using VulkanResource = Resource::Base;
+
 /**
  * Fences take ownership of objects, protecting them from GPU-side or driver-side race conditions.
  * They must be commited from the resouce manager. Their use flow is: commit the fence from the
@@ -185,8 +191,8 @@ private:
  * when they are free to be reused.
  */
 class VulkanFence {
-    friend class VulkanResourcePersistent;
-    friend class VulkanResourceTransient;
+    friend class Resource::Persistent;
+    friend class Resource::Transient;
     friend class VulkanResourceManager;
 
 public:
@@ -308,9 +314,9 @@ public:
 
 private:
     template <typename T>
-    using ResourceVector = std::vector<std::unique_ptr<VulkanResourceTransientEntry<T>>>;
+    using ResourceVector = std::vector<std::unique_ptr<Resource::TransientEntry<T>>>;
 
-    using RenderPassEntry = VulkanResourceOneShotEntry<vk::RenderPass>;
+    using RenderPassEntry = Resource::OneShotEntry<vk::RenderPass>;
 
     template <typename T>
     T& CommitFreeResource(ResourceVector<T>& resources, VulkanFence& commit_fence);

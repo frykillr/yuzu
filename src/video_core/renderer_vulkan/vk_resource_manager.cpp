@@ -24,23 +24,24 @@ constexpr u32 FENCES_GROW_STEP = 0x1000;
 constexpr u32 TICKS_TO_DESTROY = 0x10;
 constexpr std::size_t OBJECTS_TO_DESTROY = 0x10;
 
-VulkanResource::VulkanResource() = default;
+using namespace Resource;
 
-VulkanResource::~VulkanResource() = default;
+Base::Base() = default;
 
-VulkanResourcePersistent::VulkanResourcePersistent(VulkanResourceManager& resource_manager,
-                                                   vk::Device device,
-                                                   std::mutex& external_fences_mutex)
-    : VulkanResource(), resource_manager(resource_manager), device(device),
+Base::~Base() = default;
+
+Persistent::Persistent(VulkanResourceManager& resource_manager, vk::Device device,
+                       std::mutex& external_fences_mutex)
+    : resource_manager(resource_manager), device(device),
       external_fences_mutex(external_fences_mutex) {
 
     const vk::SemaphoreCreateInfo semaphore_ci;
     write_semaphore = device.createSemaphoreUnique(semaphore_ci);
 }
 
-VulkanResourcePersistent::~VulkanResourcePersistent() = default;
+Persistent::~Persistent() = default;
 
-void VulkanResourcePersistent::Wait() {
+void Persistent::Wait() {
     // Wait for all fences, we can't write unless all previous operations have finished.
     // Lock fences to avoid external fence changes while we loop.
     std::unique_lock external_fences_lock(external_fences_mutex);
@@ -56,7 +57,7 @@ void VulkanResourcePersistent::Wait() {
     }
 }
 
-vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
+vk::Semaphore Persistent::ReadProtect(VulkanFence& new_fence) {
     std::unique_lock ownership_lock(ownership_mutex);
     std::unique_lock fence_change_lock(fence_change_mutex);
     std::unique_lock external_fences_lock(external_fences_mutex);
@@ -67,7 +68,7 @@ vk::Semaphore VulkanResourcePersistent::ReadProtect(VulkanFence& new_fence) {
     return *write_semaphore;
 }
 
-vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
+vk::Semaphore Persistent::WriteProtect(VulkanFence& new_fence) {
     std::unique_lock ownership_lock(ownership_mutex);
     Wait();
 
@@ -83,7 +84,7 @@ vk::Semaphore VulkanResourcePersistent::WriteProtect(VulkanFence& new_fence) {
     return *write_semaphore;
 }
 
-void VulkanResourcePersistent::OnFenceRemoval(VulkanFence* signaling_fence) {
+void Persistent::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(fence_change_mutex);
 
     if (write_fence == signaling_fence) {
@@ -95,33 +96,32 @@ void VulkanResourcePersistent::OnFenceRemoval(VulkanFence* signaling_fence) {
     }
 }
 
-VulkanResourceOneShot::VulkanResourceOneShot() = default;
+OneShot::OneShot() = default;
 
-VulkanResourceOneShot::~VulkanResourceOneShot() {
+OneShot::~OneShot() {
     ASSERT_MSG(is_signaled, "Destroying a one shot resource that's still marked as used");
 }
 
-bool VulkanResourceOneShot::IsSignaled() const {
+bool OneShot::IsSignaled() const {
     std::unique_lock lock(mutex);
     return is_signaled;
 }
 
-void VulkanResourceOneShot::OnFenceRemoval(VulkanFence* signaling_fence) {
+void OneShot::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
     is_signaled = true;
 }
 
-VulkanResourceTransient::VulkanResourceTransient(vk::Device device)
-    : VulkanResource(), device(device) {}
+Transient::Transient(vk::Device device) : VulkanResource(), device(device) {}
 
-VulkanResourceTransient::~VulkanResourceTransient() = default;
+Transient::~Transient() = default;
 
-bool VulkanResourceTransient::TryCommit(VulkanFence& commit_fence) {
+bool Transient::TryCommit(VulkanFence& commit_fence) {
     std::unique_lock lock(mutex);
     return UnsafeTryCommit(commit_fence);
 }
 
-void VulkanResourceTransient::Commit(VulkanFence& commit_fence) {
+void Transient::Commit(VulkanFence& commit_fence) {
     std::unique_lock lock(mutex);
     if (fence) {
         device.waitForFences({*fence}, true, WaitTimeout);
@@ -130,7 +130,7 @@ void VulkanResourceTransient::Commit(VulkanFence& commit_fence) {
     ASSERT_MSG(available, "Unexpected race condition");
 }
 
-void VulkanResourceTransient::OnFenceRemoval(VulkanFence* signaling_fence) {
+void Transient::OnFenceRemoval(VulkanFence* signaling_fence) {
     std::unique_lock lock(mutex);
     ASSERT(fence && fence == signaling_fence);
     ASSERT(is_claimed);
@@ -138,7 +138,7 @@ void VulkanResourceTransient::OnFenceRemoval(VulkanFence* signaling_fence) {
     is_claimed = false;
 }
 
-bool VulkanResourceTransient::UnsafeTryCommit(VulkanFence& commit_fence) {
+bool Transient::UnsafeTryCommit(VulkanFence& commit_fence) {
     if (is_claimed) {
         return false;
     }
@@ -185,15 +185,12 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
             // not been asked.
             return false;
         }
-
         {
             std::unique_lock wait_lock(wait_mutex);
             is_being_waited = true;
         }
-
         std::unique_lock owner_lock(ownership_mutex);
         ownership_watch.wait(owner_lock);
-
         {
             std::unique_lock wait_lock(wait_mutex);
             is_being_waited = false;
@@ -395,7 +392,7 @@ void VulkanResourceManager::CreateCommands() {
     command_buffers.resize(COMMAND_BUFFERS_COUNT);
     for (u32 i = 0; i < COMMAND_BUFFERS_COUNT; ++i) {
         command_buffers[i] =
-            std::make_unique<VulkanResourceTransientEntry<vk::CommandBuffer>>(cmdbufs[i], device);
+            std::make_unique<TransientEntry<vk::CommandBuffer>>(cmdbufs[i], device);
     }
 }
 
@@ -403,7 +400,7 @@ void VulkanResourceManager::CreateSemaphores() {
     semaphores.resize(SEMAPHORES_COUNT);
     for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
         const vk::SemaphoreCreateInfo semaphore_ci;
-        semaphores[i] = std::make_unique<VulkanResourceTransientEntry<vk::UniqueSemaphore>>(
+        semaphores[i] = std::make_unique<TransientEntry<vk::UniqueSemaphore>>(
             device.createSemaphoreUnique(semaphore_ci), device);
     }
 }
