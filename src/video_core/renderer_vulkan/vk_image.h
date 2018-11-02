@@ -57,8 +57,8 @@ private:
     vk::UniqueImage image;
 
     vk::ImageLayout current_layout;
-    // Note(Rodrigo): Using eTransferWrite and eTopOfPipe here is a hack to have a value for the
-    // initial transition.
+    // Note(Rodrigo): Using eTransferWrite and eTopOfPipe here is a hack to have a valid value for
+    // the initial transition.
     vk::PipelineStageFlags current_stage_mask = vk::PipelineStageFlagBits::eTopOfPipe;
     vk::AccessFlags current_access{};
     u32 current_family = VK_QUEUE_FAMILY_IGNORED;

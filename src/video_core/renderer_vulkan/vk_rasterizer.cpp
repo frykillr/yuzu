@@ -4,18 +4,26 @@
 
 #include <memory>
 #include <vulkan/vulkan.hpp>
+#include "common/alignment.h"
+#include "common/assert.h"
+#include "common/logging/log.h"
 #include "core/core.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
+#include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
+#include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 
 #pragma optimize("", off)
 
 namespace Vulkan {
+
+using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
                                    VulkanScreenInfo& screen_info, VulkanDevice& device_handler,
@@ -23,15 +31,42 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
                                    VulkanMemoryManager& memory_manager, VulkanSync& sync)
     : VideoCore::RasterizerInterface(), render_window(renderer), screen_info(screen_info),
       device_handler(device_handler), device(device_handler.GetLogical()),
-      resource_manager(resource_manager), memory_manager(memory_manager), sync(sync) {
+      graphics_queue(device_handler.GetGraphicsQueue()), resource_manager(resource_manager),
+      memory_manager(memory_manager), sync(sync),
+      uniform_buffer_alignment(device_handler.GetUniformBufferAlignment()) {
 
     res_cache =
         std::make_unique<VulkanRasterizerCache>(device_handler, resource_manager, memory_manager);
+    shader_cache = std::make_unique<VulkanShaderCache>(device_handler);
+    buffer_cache = std::make_unique<VulkanBufferCache>(resource_manager, device_handler,
+                                                       memory_manager, STREAM_BUFFER_SIZE);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
 
-void RasterizerVulkan::DrawArrays() {}
+void RasterizerVulkan::DrawArrays() {
+    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
+    const auto& regs = gpu.regs;
+
+    VulkanFence& fence = sync.PrepareExecute(true);
+
+    const vk::PrimitiveTopology primitive_topology =
+        MaxwellToVK::PrimitiveTopology(regs.draw.topology);
+
+    std::size_t buffer_size = 0;
+    buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
+
+    buffer_cache->Reserve(buffer_size);
+
+    SetupShaders(primitive_topology);
+
+    buffer_cache->Send(sync, fence);
+
+    vk::CommandBuffer cmdbuf = sync.BeginRecord();
+    sync.EndRecord(cmdbuf);
+
+    sync.Execute();
+}
 
 void RasterizerVulkan::Clear() {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
@@ -146,6 +181,86 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
     screen_info.image = surface.get();
 
     return true;
+}
+
+bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
+    // TODO
+    DrawArrays();
+    return true;
+}
+
+void RasterizerVulkan::SetupShaders(vk::PrimitiveTopology primitive_topology) {
+    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
+
+    constexpr u32 MAX_STAGES_COUNT = 6;
+    std::array<vk::PipelineShaderStageCreateInfo, MAX_STAGES_COUNT> stages;
+    u32 stages_count = 0;
+
+    for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
+        const auto& shader_config = gpu.regs.shader_config[index];
+        const auto program{static_cast<Maxwell::ShaderProgram>(index)};
+
+        // Skip stages that are not enabled
+        if (!gpu.regs.IsShaderConfigEnabled(index)) {
+            continue;
+        }
+
+        Shader shader = shader_cache->GetStageProgram(program);
+
+        const std::size_t stage{index == 0 ? 0 : index - 1}; // Stage indices are 0 - 5
+        const vk::ShaderStageFlagBits stage_bits = MaxwellToVK::ShaderStage(program);
+
+        stages[stages_count++] = vk::PipelineShaderStageCreateInfo(
+            {}, stage_bits, shader->GetHandle(primitive_topology), "main", nullptr);
+
+        SetupConstBuffers(shader, static_cast<Maxwell::ShaderStage>(stage), stage_bits);
+
+        // When VertexA is enabled, we have dual vertex shaders
+        if (program == Maxwell::ShaderProgram::VertexA) {
+            // VertexB was combined with VertexA, so we skip the VertexB iteration
+            index++;
+        }
+    }
+}
+
+void RasterizerVulkan::SetupConstBuffers(Shader shader, Maxwell::ShaderStage stage,
+                                         vk::ShaderStageFlagBits stage_bits) {
+    const auto& gpu = Core::System::GetInstance().GPU();
+    const auto& maxwell3d = gpu.Maxwell3D();
+    const auto& shader_stage = maxwell3d.state.shader_stages[static_cast<std::size_t>(stage)];
+
+    const auto& entries = shader->GetEntries().const_buffer_entries;
+    std::vector<vk::DescriptorSetLayoutBinding> layout_bindings;
+
+    for (const auto& used_buffer : entries) {
+        const auto& buffer = shader_stage.const_buffers[used_buffer.GetIndex()];
+
+        layout_bindings.push_back(
+            {used_buffer.GetBinding(), vk::DescriptorType::eUniformBuffer, 1, stage_bits, nullptr});
+
+        std::size_t size = 0;
+
+        if (used_buffer.IsIndirect()) {
+            // Buffer is accessed indirectly, so upload the entire thing
+            size = buffer.size;
+
+            if (size > MaxConstbufferSize) {
+                LOG_CRITICAL(HW_GPU, "indirect constbuffer size {} exceeds maximum {}", size,
+                             MaxConstbufferSize);
+                size = MaxConstbufferSize;
+            }
+        } else {
+            // Buffer is accessed directly, upload just what we use
+            size = used_buffer.GetSize() * sizeof(float);
+        }
+
+        // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL std140
+        // UBO alignment requirements.
+        size = Common::AlignUp(size, 4 * sizeof(float));
+        ASSERT_MSG(size <= MaxConstbufferSize, "Constbuffer too big");
+
+        buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
+    }
 }
 
 } // namespace Vulkan

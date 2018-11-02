@@ -39,7 +39,14 @@ Persistent::Persistent(VulkanResourceManager& resource_manager, vk::Device devic
     write_semaphore = device.createSemaphoreUnique(semaphore_ci);
 }
 
-Persistent::~Persistent() = default;
+Persistent::~Persistent() {
+    for (auto& read_fence : read_fences) {
+        read_fence->Unprotect(this);
+    }
+    if (write_fence) {
+        write_fence->Unprotect(this);
+    }
+}
 
 void Persistent::Wait() {
     // Wait for all fences, we can't write unless all previous operations have finished.
@@ -114,7 +121,11 @@ void OneShot::OnFenceRemoval(VulkanFence* signaling_fence) {
 
 Transient::Transient(vk::Device device) : VulkanResource(), device(device) {}
 
-Transient::~Transient() = default;
+Transient::~Transient() {
+    if (fence) {
+        fence->Unprotect(this);
+    }
+}
 
 bool Transient::TryCommit(VulkanFence& commit_fence) {
     std::unique_lock lock(mutex);
@@ -210,7 +221,6 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
     for (auto* resource : protected_resources) {
         resource->OnFenceRemoval(this);
     }
-    // TODO(Rodrigo): Find a way to preserve vector's allocated memory.
     protected_resources.clear();
 
     // Prepare fence for reusage.

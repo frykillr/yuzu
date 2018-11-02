@@ -18,6 +18,8 @@
 #include "video_core/renderer_opengl/gl_rasterizer.h"
 #include "video_core/renderer_opengl/gl_shader_decompiler.h"
 
+#pragma optimize("", off)
+
 namespace OpenGL::GLShader::Decompiler {
 
 using Tegra::Shader::Attribute;

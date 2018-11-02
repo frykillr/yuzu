@@ -23,7 +23,6 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_stream_buffer.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 #include "video_core/utils.h"
@@ -78,11 +77,6 @@ bool RendererVulkan::Init() {
 
     resource_manager = std::make_unique<VulkanResourceManager>(*device_handler);
 
-    stream_buffer = std::make_unique<VulkanStreamBuffer>(
-        *resource_manager, *device_handler, *memory_manager, STREAM_BUFFER_SIZE,
-        vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eUniformBuffer |
-            vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferSrc);
-
     const auto& framebuffer = render_window.GetFramebufferLayout();
     swapchain = std::make_unique<VulkanSwapchain>(surface, *device_handler);
     swapchain->Create(framebuffer.width, framebuffer.height);
@@ -107,12 +101,13 @@ void RendererVulkan::ShutDown() {
     }
     device.waitIdle();
 
+    // Always destroy the resource manager first, that way objects get signaled to be freed and
+    // there are no dead references.
+    resource_manager.reset();
     rasterizer.reset();
     blit_screen.reset();
     sync.reset();
     swapchain.reset();
-    stream_buffer.reset();
-    resource_manager.reset();
     memory_manager.reset();
     present_semaphore.reset();
 

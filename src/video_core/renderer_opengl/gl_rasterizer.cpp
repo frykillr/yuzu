@@ -443,7 +443,7 @@ void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool us
     // TODO(bunnei): Figure out how the below register works. According to envytools, this should be
     // used to enable multiple render targets. However, it is left unset on all games that I have
     // tested.
-    ASSERT_MSG(regs.rt_separate_frag_data == 0, "Unimplemented");
+    //ASSERT_MSG(regs.rt_separate_frag_data == 0, "Unimplemented");
 
     // Bind the framebuffer surfaces
     current_state.draw.draw_framebuffer = framebuffer.handle;

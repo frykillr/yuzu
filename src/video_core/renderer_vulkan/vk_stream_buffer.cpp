@@ -9,6 +9,9 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
+#include "video_core/renderer_vulkan/vk_sync.h"
+
+#pragma optimize("", off)
 
 namespace Vulkan {
 
@@ -20,7 +23,7 @@ public:
     explicit VulkanStreamBufferResource() = default;
     virtual ~VulkanStreamBufferResource() = default;
 
-    void Reset(VulkanFence& new_fence) {
+    void Setup(VulkanFence& new_fence) {
         fence = &new_fence;
         is_signaled = false;
 
@@ -55,8 +58,8 @@ VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                        VulkanMemoryManager& memory_manager, u64 size,
                                        vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      memory_manager(memory_manager), has_device_memory(!memory_manager.IsMemoryUnified()),
-      buffer_size(size) {
+      memory_manager(memory_manager), /*has_device_memory(!memory_manager.IsMemoryUnified()),*/
+      has_device_memory(true), buffer_size(size) {
 
     CreateBuffers(memory_manager, usage);
     GrowResources(RESOURCE_RESERVE);
@@ -89,44 +92,33 @@ std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, boo
             invalidate};
 }
 
-std::optional<std::tuple<vk::SubmitInfo, vk::Semaphore>> VulkanStreamBuffer::Send(
-    VulkanFence& fence, u64 size) {
-
+void VulkanStreamBuffer::Send(VulkanSync& sync, VulkanFence& fence, u64 size) {
     ASSERT(size <= mapped_size);
-
-    vk::Semaphore semaphore{};
-    vk::SubmitInfo submit;
 
     if (use_device) {
         const vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(fence);
-        semaphore = resource_manager.CommitSemaphore(fence);
+        const vk::Semaphore semaphore = resource_manager.CommitSemaphore(fence);
 
-        const vk::CommandBufferBeginInfo cmdbuf_bi(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-        cmdbuf.begin(cmdbuf_bi);
+        cmdbuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 
         // Buffers are mirrored.
         const vk::BufferCopy copy_region(buffer_pos, buffer_pos, size);
         cmdbuf.copyBuffer(*mappeable_buffer, *device_buffer, {copy_region});
+
         cmdbuf.end();
 
-        submit = vk::SubmitInfo(0, nullptr, nullptr, 1, &cmdbuf, 1, &semaphore);
+        sync.AddDependency(cmdbuf, semaphore, vk::PipelineStageFlagBits::eTransfer);
     }
 
     if (used_resources + 1 >= resources.size()) {
         resources.resize(resources.size() + RESOURCE_CHUNK);
     }
     auto& resource = resources[used_resources++];
-    resource->Reset(fence);
+    resource->Setup(fence);
 
     buffer_pos += size;
 
     mutex.unlock();
-
-    if (use_device) {
-        return std::tie(submit, semaphore);
-    } else {
-        return {};
-    }
 }
 
 void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
@@ -136,8 +128,8 @@ void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
         if (has_device_memory) {
             mappeable_usage |= vk::BufferUsageFlagBits::eTransferSrc;
         }
-        const vk::BufferCreateInfo buffer_ci({}, buffer_size, usage, vk::SharingMode::eExclusive, 0,
-                                             nullptr);
+        const vk::BufferCreateInfo buffer_ci({}, buffer_size, mappeable_usage,
+                                             vk::SharingMode::eExclusive, 0, nullptr);
 
         mappeable_buffer = device.createBufferUnique(buffer_ci);
 

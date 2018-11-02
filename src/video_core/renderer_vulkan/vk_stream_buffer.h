@@ -17,7 +17,10 @@ namespace Vulkan {
 class VulkanDevice;
 class VulkanFence;
 class VulkanMemoryManager;
+class VulkanMemoryCommit;
+class VulkanResourceManager;
 class VulkanStreamBufferResource;
+class VulkanSync;
 
 class VulkanStreamBuffer {
 public:
@@ -26,9 +29,16 @@ public:
                                 u64 size, vk::BufferUsageFlags usage);
     ~VulkanStreamBuffer();
 
+    /**
+     * Reserves a region of memory from the stream buffer.
+     * @param size Size to reserve.
+     * @param keep_in_host Mapped buffer will be in host memory, skipping the copy to device local.
+     * @returns A tuple in the following order: Raw memory pointer (with offset added), buffer
+     * offset, Vulkan buffer handle, buffer has been invalited.
+     */
     std::tuple<u8*, u64, vk::Buffer, bool> Reserve(u64 size, bool keep_in_host);
 
-    std::optional<std::tuple<vk::SubmitInfo, vk::Semaphore>> Send(VulkanFence& fence, u64 size);
+    void Send(VulkanSync& sync, VulkanFence& fence, u64 size);
 
 private:
     void CreateBuffers(VulkanMemoryManager& memory_manager, vk::BufferUsageFlags usage);

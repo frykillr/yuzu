@@ -13,7 +13,7 @@ namespace Vulkan {
 VulkanDevice::VulkanDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer)
     : physical(physical), is_renderer(is_renderer) {
 
-    int i{};
+    int i = 0;
     for (const auto& queue_family : physical.getQueueFamilyProperties()) {
         if (queue_family.queueCount == 0) {
             ++i;
@@ -30,6 +30,8 @@ VulkanDevice::VulkanDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, 
 
     const vk::PhysicalDeviceProperties props = physical.getProperties();
     device_type = props.deviceType;
+
+    uniform_buffer_alignment = props.limits.minUniformBufferOffsetAlignment;
 }
 
 VulkanDevice::~VulkanDevice() {

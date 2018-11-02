@@ -37,3 +37,6 @@
 [submodule "discord-rpc"]
     path = externals/discord-rpc
     url = https://github.com/discordapp/discord-rpc.git
+[submodule "externals/sirit"]
+	path = externals/sirit
+	url = https://github.com/ReinUsesLisp/sirit

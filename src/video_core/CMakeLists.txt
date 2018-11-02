@@ -70,10 +70,13 @@ add_library(video_core STATIC
 
 if (Vulkan_FOUND)
     target_sources(video_core PRIVATE
+        renderer_vulkan/maxwell_to_vk.h
         renderer_vulkan/renderer_vulkan.cpp
         renderer_vulkan/renderer_vulkan.h
         renderer_vulkan/vk_blit_screen.cpp
         renderer_vulkan/vk_blit_screen.h
+        renderer_vulkan/vk_buffer_cache.cpp
+        renderer_vulkan/vk_buffer_cache.h
         renderer_vulkan/vk_device.cpp
         renderer_vulkan/vk_device.h
         renderer_vulkan/vk_rasterizer.cpp
@@ -82,6 +85,12 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_rasterizer_cache.h
         renderer_vulkan/vk_resource_manager.cpp
         renderer_vulkan/vk_resource_manager.h
+        renderer_vulkan/vk_shader_cache.cpp
+        renderer_vulkan/vk_shader_cache.h
+        renderer_vulkan/vk_shader_decompiler.cpp
+        renderer_vulkan/vk_shader_decompiler.h
+        renderer_vulkan/vk_shader_gen.cpp
+        renderer_vulkan/vk_shader_gen.h
         renderer_vulkan/vk_shader_util.cpp
         renderer_vulkan/vk_shader_util.h
         renderer_vulkan/vk_stream_buffer.cpp
@@ -97,7 +106,7 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_helper.cpp
         renderer_vulkan/vk_helper.h)
 
-    target_include_directories(video_core PRIVATE Vulkan::Vulkan)
+    target_include_directories(video_core PRIVATE Vulkan::Vulkan sirit)
     target_compile_definitions(video_core PRIVATE HAS_VULKAN)
 endif()
 
@@ -106,5 +115,5 @@ create_target_directory_groups(video_core)
 target_link_libraries(video_core PUBLIC common core)
 target_link_libraries(video_core PRIVATE glad)
 if (Vulkan_FOUND)
-    target_link_libraries(video_core PRIVATE Vulkan::Vulkan)
+    target_link_libraries(video_core PRIVATE Vulkan::Vulkan sirit)
 endif()

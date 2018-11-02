@@ -50,20 +50,25 @@ public:
         return device_type == vk::PhysicalDeviceType::eIntegratedGpu;
     }
 
+    u64 GetUniformBufferAlignment() const {
+        return uniform_buffer_alignment;
+    }
+
     static bool IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
 
 private:
     std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos() const;
 
-    vk::PhysicalDevice physical;
+    const vk::PhysicalDevice physical;
     vk::Device logical{};
     vk::Queue graphics_queue{};
     vk::Queue present_queue{};
     u32 graphics_family = UndefinedFamily;
     u32 present_family = UndefinedFamily;
     vk::PhysicalDeviceType device_type{};
+    u64 uniform_buffer_alignment;
 
-    bool is_renderer;
+    const bool is_renderer;
 };
 
 } // namespace Vulkan

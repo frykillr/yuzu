@@ -11,18 +11,16 @@
 
 namespace Vulkan {
 
-constexpr u32 CALLS_RESERVE = 128;
-
 VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevice& device_handler)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      queue(device_handler.GetGraphicsQueue()) {
-
-    calls.reserve(CALLS_RESERVE);
-}
+      queue(device_handler.GetGraphicsQueue()) {}
 
 VulkanSync::~VulkanSync() = default;
 
 VulkanFence& VulkanSync::PrepareExecute(bool take_fence_ownership) {
+    mutex.lock();
+    recording_submit = true;
+
     this->take_fence_ownership = take_fence_ownership;
 
     VulkanFence& fence = resource_manager.CommitFence();
@@ -32,42 +30,79 @@ VulkanFence& VulkanSync::PrepareExecute(bool take_fence_ownership) {
     return fence;
 }
 
+void VulkanSync::AddDependency(vk::CommandBuffer cmdbuf, vk::Semaphore semaphore,
+                               vk::PipelineStageFlags pipeline_stage) {
+    ASSERT(recording_submit);
+
+    const std::size_t index = dep_cmdbufs.size();
+    dep_cmdbufs.push_back(cmdbuf);
+    dep_signal_semaphores.push_back(semaphore);
+    dep_wait_semaphores.push_back(semaphore);
+    dep_pipeline_stages.push_back(pipeline_stage);
+
+    const vk::SubmitInfo si({}, nullptr, nullptr, 1, &dep_cmdbufs[index], 1,
+                            &dep_signal_semaphores[index]);
+    submit_infos.push_back(si);
+}
+
 void VulkanSync::Execute() {
-    vk::SubmitInfo submit_info(0, nullptr, nullptr, static_cast<u32>(current_call->commands.size()),
-                               current_call->commands.data(), 1, &current_call->semaphore);
+    ASSERT(recording_submit);
 
-    // TODO(Rodrigo): This could be optimized with an extra argument.
-    const vk::PipelineStageFlags stage_flags = vk::PipelineStageFlagBits::eAllCommands;
-
-    if (wait_semaphore) {
-        submit_info.waitSemaphoreCount = 1;
-        submit_info.pWaitSemaphores = &wait_semaphore;
-        submit_info.pWaitDstStageMask = &stage_flags;
+    if (previous_semaphore) {
+        // TODO(Rodrigo): Pipeline wait can be optimized with an extra argument.
+        dep_wait_semaphores.push_back(previous_semaphore);
+        dep_pipeline_stages.push_back(vk::PipelineStageFlagBits::eAllCommands);
     }
-    queue.submit({submit_info}, *current_call->fence);
+    ASSERT_MSG(dep_wait_semaphores.size() == dep_pipeline_stages.size(), "Dependency size mismatch");
+
+    submit_infos.push_back({static_cast<u32>(dep_wait_semaphores.size()), dep_wait_semaphores.data(),
+                            dep_pipeline_stages.data(),
+                            static_cast<u32>(current_call->commands.size()),
+                            current_call->commands.data(), 1, &current_call->semaphore});
+
+    queue.submit(static_cast<u32>(submit_infos.size()), submit_infos.data(), *current_call->fence);
+    ClearSubmitData();
+
     if (take_fence_ownership) {
         current_call->fence->Release();
     }
 
-    wait_semaphore = current_call->semaphore;
+    previous_semaphore = current_call->semaphore;
     calls.push_back(std::move(current_call));
+
+    recording_submit = false;
+    mutex.unlock();
 }
 
 vk::CommandBuffer VulkanSync::BeginRecord() {
+    ASSERT(recording_submit);
+
     vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(*current_call->fence);
     cmdbuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     return cmdbuf;
 }
 
 void VulkanSync::EndRecord(vk::CommandBuffer cmdbuf) {
+    ASSERT(recording_submit);
+
     cmdbuf.end();
     current_call->commands.push_back(cmdbuf);
 }
 
 vk::Semaphore VulkanSync::QuerySemaphore() {
-    vk::Semaphore semaphore = wait_semaphore;
-    wait_semaphore = vk::Semaphore(nullptr);
+    std::unique_lock lock(mutex);
+
+    vk::Semaphore semaphore = previous_semaphore;
+    previous_semaphore = vk::Semaphore(nullptr);
     return semaphore;
+}
+
+void VulkanSync::ClearSubmitData() {
+    submit_infos.clear();
+    dep_cmdbufs.clear();
+    dep_signal_semaphores.clear();
+    dep_wait_semaphores.clear();
+    dep_pipeline_stages.clear();
 }
 
 } // namespace Vulkan

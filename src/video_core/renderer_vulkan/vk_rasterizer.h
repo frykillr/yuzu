@@ -7,6 +7,7 @@
 #include <memory>
 #include <vulkan/vulkan.hpp>
 #include "video_core/rasterizer_interface.h"
+#include "video_core/renderer_vulkan/vk_shader_cache.h"
 
 namespace Core::Frontend {
 class EmuWindow;
@@ -20,6 +21,8 @@ class VulkanRasterizerCache;
 class VulkanResourceManager;
 class VulkanMemoryManager;
 class VulkanDevice;
+class VulkanShaderCache;
+class VulkanBufferCache;
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
 public:
@@ -37,17 +40,34 @@ public:
     void FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) override;
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;
+    bool AccelerateDrawBatch(bool is_indexed) override;
+
+    /// Maximum supported size that a constbuffer can have in bytes.
+    static constexpr std::size_t MaxConstbufferSize = 0x10000;
+    static_assert(MaxConstbufferSize % (4 * sizeof(float)) == 0,
+                  "The maximum size of a constbuffer must be a multiple of the size of GLvec4");
 
 private:
+    static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
+
+    void SetupShaders(vk::PrimitiveTopology primitive_topology);
+
+    void SetupConstBuffers(Shader shader, Maxwell::ShaderStage stage,
+                           vk::ShaderStageFlagBits stage_bits);
+
     Core::Frontend::EmuWindow& render_window;
     VulkanScreenInfo& screen_info;
     VulkanDevice& device_handler;
     const vk::Device device;
+    const vk::Queue graphics_queue;
     VulkanResourceManager& resource_manager;
     VulkanMemoryManager& memory_manager;
     VulkanSync& sync;
+    const u64 uniform_buffer_alignment;
 
     std::unique_ptr<VulkanRasterizerCache> res_cache;
+    std::unique_ptr<VulkanShaderCache> shader_cache;
+    std::unique_ptr<VulkanBufferCache> buffer_cache;
 };
 
 } // namespace Vulkan
