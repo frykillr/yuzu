@@ -387,6 +387,8 @@ Id SpirvModule::DeclareUniform(u64 cbuf_index) {
     const Id variable = AddGlobalVariable(Name(OpVariable(t_cbuf_ubo, spv::StorageClass::Uniform),
                                                fmt::format("cbuf{}", cbuf_index)));
     Decorate(variable, spv::Decoration::ArrayStride, {UBO_STRIDE});
+    Decorate(variable, spv::Decoration::Binding, {binding});
+    Decorate(variable, spv::Decoration::DescriptorSet, {descriptor_set});
     return cbufs[cbuf_index] = variable;
 }
 
@@ -901,8 +903,8 @@ void SpirvModule::DeclareFragmentOutputs() {
 }
 
 SpirvModule::SpirvModule(const ProgramCode& program_code, u32 main_offset, ShaderStage stage)
-    : Sirit::Module(0x00010000), program_code(program_code), main_offset(main_offset),
-      stage(stage) {
+    : Sirit::Module(0x00010000), program_code(program_code), main_offset(main_offset), stage(stage),
+      descriptor_set(static_cast<u32>(stage)) {
 
     std::memcpy(&header, program_code.data(), sizeof(Tegra::Shader::Header));
 

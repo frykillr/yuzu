@@ -21,13 +21,20 @@ constexpr u64 RESOURCE_CHUNK = 0x1000;
 class VulkanStreamBufferResource final : public VulkanResource {
 public:
     explicit VulkanStreamBufferResource() = default;
-    virtual ~VulkanStreamBufferResource() = default;
+    virtual ~VulkanStreamBufferResource() {
+        if (fence) {
+            fence->Unprotect(this);
+        }
+    }
 
     void Setup(VulkanFence& new_fence) {
         fence = &new_fence;
         is_signaled = false;
 
         std::unique_lock lock(mutex);
+        if (fence) {
+            fence->Unprotect(this);
+        }
         fence->Protect(this);
     }
 

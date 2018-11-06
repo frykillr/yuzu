@@ -3,9 +3,11 @@
 // Refer to the license.txt file included.
 
 #include <memory>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include "core/core.h"
 #include "core/memory.h"
+#include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
@@ -31,7 +33,8 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
 
 CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
                            Maxwell::ShaderProgram program_type)
-    : addr{addr}, program_type{program_type}, setup{GetShaderCode(addr)} {
+    : addr{addr},
+      program_type{program_type}, setup{GetShaderCode(addr)}, device{device_handler.GetLogical()} {
 
     VKShader::ProgramResult program_result = [&]() {
         switch (program_type) {
@@ -50,9 +53,24 @@ CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
         }
     }();
 
+    entries = program_result.entries;
+
     const vk::ShaderModuleCreateInfo shader_module_ci(
         {}, program_result.code.size(), reinterpret_cast<const u32*>(program_result.code.data()));
-    shader_module = device_handler.GetLogical().createShaderModuleUnique(shader_module_ci);
+    shader_module = device.createShaderModuleUnique(shader_module_ci);
+
+    CreateDescriptorSetLayout();
+}
+
+void CachedShader::CreateDescriptorSetLayout() {
+    std::vector<vk::DescriptorSetLayoutBinding> bindings;
+    for (const auto& cbuf_entry : entries.const_buffer_entries) {
+        bindings.push_back({cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1,
+                            MaxwellToVK::ShaderStage(program_type), nullptr});
+    }
+
+    device.createDescriptorSetLayoutUnique(
+        {{}, static_cast<u32>(bindings.size()), bindings.data()});
 }
 
 VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)

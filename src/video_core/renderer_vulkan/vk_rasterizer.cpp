@@ -89,9 +89,9 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    VulkanFence& fence = sync.PrepareExecute(true);
-
     ASSERT_MSG(use_color, "Unimplemented");
+
+    VulkanFence& fence = sync.PrepareExecute(true);
 
     Surface color_surface = res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), false);
     ASSERT(color_surface);

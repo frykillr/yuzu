@@ -39,6 +39,7 @@ public:
 
     ShaderEntries GetEntries() const {
         ShaderEntries entries;
+        entries.descriptor_set = descriptor_set;
         for (const auto& const_buffer_entry : declr_const_buffers) {
             if (const_buffer_entry.IsUsed()) {
                 entries.const_buffer_entries.push_back(const_buffer_entry);
@@ -245,9 +246,11 @@ private:
     const ProgramCode& program_code;
     const u32 main_offset;
     const Maxwell3D::Regs::ShaderStage stage;
+    const u32 descriptor_set;
     Tegra::Shader::Header header;
 
-    u32 binding{};
+    /// Binding iterator
+    u32 binding = 0;
 
     std::vector<Id> interfaces;
 

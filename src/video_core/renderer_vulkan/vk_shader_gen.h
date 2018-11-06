@@ -88,6 +88,7 @@ private:
 };
 
 struct ShaderEntries {
+    u32 descriptor_set;
     std::vector<ConstBufferEntry> const_buffer_entries;
 };
 

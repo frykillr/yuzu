@@ -39,18 +39,28 @@ public:
         return *shader_module;
     }
 
+    /// Gets the descriptor set layout of the shader.
+    vk::DescriptorSetLayout GetDescriptorSetLayout() const {
+        return *descriptor_set_layout;
+    }
+
     /// Gets the module entries for the shader.
     const VKShader::ShaderEntries& GetEntries() const {
         return entries;
     }
 
 private:
-    VAddr addr;
-    Maxwell::ShaderProgram program_type;
+    void CreateDescriptorSetLayout();
+
+    const VAddr addr;
+    const Maxwell::ShaderProgram program_type;
+    const vk::Device device;
+
     VKShader::ShaderSetup setup;
     VKShader::ShaderEntries entries;
 
     vk::UniqueShaderModule shader_module;
+    vk::UniqueDescriptorSetLayout descriptor_set_layout;
 };
 
 class VulkanShaderCache final : public RasterizerCache<Shader> {
