@@ -101,15 +101,13 @@ void RendererVulkan::ShutDown() {
     }
     device.waitIdle();
 
-    // Always destroy the resource manager first, that way objects get signaled to be freed and
-    // there are no dead references.
-    resource_manager.reset();
     rasterizer.reset();
     blit_screen.reset();
     sync.reset();
     swapchain.reset();
     memory_manager.reset();
     present_semaphore.reset();
+    resource_manager.reset();
 
     device_handler.reset();
 }
