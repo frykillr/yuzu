@@ -111,7 +111,7 @@ void VulkanStreamBuffer::Send(VulkanSync& sync, VulkanFence& fence, u64 size) {
     }
 
     if (used_resources + 1 >= resources.size()) {
-        resources.resize(resources.size() + RESOURCE_CHUNK);
+        GrowResources(RESOURCE_CHUNK);
     }
     auto& resource = resources[used_resources++];
     resource->Setup(fence);
@@ -155,7 +155,7 @@ void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
 }
 
 void VulkanStreamBuffer::GrowResources(std::size_t grow_size) {
-    std::size_t previous_size = resources.size();
+    const std::size_t previous_size = resources.size();
     resources.resize(previous_size + grow_size);
     std::generate(resources.begin() + previous_size, resources.end(),
                   [&]() { return std::make_unique<VulkanStreamBufferResource>(); });

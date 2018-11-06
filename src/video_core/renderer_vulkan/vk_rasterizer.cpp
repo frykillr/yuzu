@@ -228,15 +228,10 @@ void RasterizerVulkan::SetupConstBuffers(Shader shader, Maxwell::ShaderStage sta
     const auto& gpu = Core::System::GetInstance().GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
     const auto& shader_stage = maxwell3d.state.shader_stages[static_cast<std::size_t>(stage)];
-
     const auto& entries = shader->GetEntries().const_buffer_entries;
-    std::vector<vk::DescriptorSetLayoutBinding> layout_bindings;
 
     for (const auto& used_buffer : entries) {
         const auto& buffer = shader_stage.const_buffers[used_buffer.GetIndex()];
-
-        layout_bindings.push_back(
-            {used_buffer.GetBinding(), vk::DescriptorType::eUniformBuffer, 1, stage_bits, nullptr});
 
         std::size_t size = 0;
 
