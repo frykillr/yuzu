@@ -615,10 +615,7 @@ static void CopySurface(const Surface& src_surface, const Surface& dst_surface,
             break;
         case SurfaceTarget::Texture3D:
         case SurfaceTarget::Texture2DArray:
-<<<<<<< HEAD
         case SurfaceTarget::TextureCubeArray:
-=======
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
             glTextureSubImage3D(dst_surface->Texture().handle, 0, 0, 0, 0, width, height,
                                 static_cast<GLsizei>(dst_params.depth), dest_format.format,
                                 dest_format.type, nullptr);
@@ -661,7 +658,6 @@ CachedSurface::CachedSurface(const SurfaceParams& params)
         // Only pre-create the texture for non-compressed textures.
         switch (params.target) {
         case SurfaceTarget::Texture1D:
-<<<<<<< HEAD
             glTexStorage1D(SurfaceTargetToGL(params.target), params.max_mip_level,
                            format_tuple.internal_format, rect.GetWidth());
             break;
@@ -676,20 +672,6 @@ CachedSurface::CachedSurface(const SurfaceParams& params)
             glTexStorage3D(SurfaceTargetToGL(params.target), params.max_mip_level,
                            format_tuple.internal_format, rect.GetWidth(), rect.GetHeight(),
                            params.depth);
-=======
-            glTexStorage1D(SurfaceTargetToGL(params.target), 1, format_tuple.internal_format,
-                           rect.GetWidth());
-            break;
-        case SurfaceTarget::Texture2D:
-        case SurfaceTarget::TextureCubemap:
-            glTexStorage2D(SurfaceTargetToGL(params.target), 1, format_tuple.internal_format,
-                           rect.GetWidth(), rect.GetHeight());
-            break;
-        case SurfaceTarget::Texture3D:
-        case SurfaceTarget::Texture2DArray:
-            glTexStorage3D(SurfaceTargetToGL(params.target), 1, format_tuple.internal_format,
-                           rect.GetWidth(), rect.GetHeight(), params.depth);
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
             break;
         default:
             LOG_CRITICAL(Render_OpenGL, "Unimplemented surface target={}",
@@ -924,20 +906,14 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
     cur_state.Apply();
 
     // Ensure no bad interactions with GL_UNPACK_ALIGNMENT
-<<<<<<< HEAD
     ASSERT(params.MipWidth(mip_map) * GetBytesPerPixel(params.pixel_format) % 4 == 0);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(params.MipWidth(mip_map)));
-=======
-    ASSERT(params.width * GetBytesPerPixel(params.pixel_format) % 4 == 0);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(params.width));
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
 
     GLsizei image_size = static_cast<GLsizei>(params.GetMipmapSizeGL(mip_map, false));
     glActiveTexture(GL_TEXTURE0);
     if (tuple.compressed) {
         switch (params.target) {
         case SurfaceTarget::Texture2D:
-<<<<<<< HEAD
             glCompressedTexImage2D(SurfaceTargetToGL(params.target), mip_map, tuple.internal_format,
                                    static_cast<GLsizei>(params.MipWidth(mip_map)),
                                    static_cast<GLsizei>(params.MipHeight(mip_map)), 0, image_size,
@@ -960,22 +936,6 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
             break;
         case SurfaceTarget::TextureCubemap: {
             GLsizei layer_size = static_cast<GLsizei>(params.LayerSizeGL(mip_map));
-=======
-            glCompressedTexImage2D(
-                SurfaceTargetToGL(params.target), 0, tuple.internal_format,
-                static_cast<GLsizei>(params.width), static_cast<GLsizei>(params.height), 0,
-                static_cast<GLsizei>(params.size_in_bytes_gl), &gl_buffer[buffer_offset]);
-            break;
-        case SurfaceTarget::Texture3D:
-        case SurfaceTarget::Texture2DArray:
-            glCompressedTexImage3D(
-                SurfaceTargetToGL(params.target), 0, tuple.internal_format,
-                static_cast<GLsizei>(params.width), static_cast<GLsizei>(params.height),
-                static_cast<GLsizei>(params.depth), 0,
-                static_cast<GLsizei>(params.size_in_bytes_gl), &gl_buffer[buffer_offset]);
-            break;
-        case SurfaceTarget::TextureCubemap:
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
             for (std::size_t face = 0; face < params.depth; ++face) {
                 glCompressedTexImage2D(static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face),
                                        mip_map, tuple.internal_format,
@@ -1000,26 +960,17 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
 
         switch (params.target) {
         case SurfaceTarget::Texture1D:
-<<<<<<< HEAD
             glTexSubImage1D(SurfaceTargetToGL(params.target), mip_map, x0,
-=======
-            glTexSubImage1D(SurfaceTargetToGL(params.target), 0, x0,
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
                             static_cast<GLsizei>(rect.GetWidth()), tuple.format, tuple.type,
                             &gl_buffer[mip_map][buffer_offset]);
             break;
         case SurfaceTarget::Texture2D:
-<<<<<<< HEAD
             glTexSubImage2D(SurfaceTargetToGL(params.target), mip_map, x0, y0,
-=======
-            glTexSubImage2D(SurfaceTargetToGL(params.target), 0, x0, y0,
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
                             static_cast<GLsizei>(rect.GetWidth()),
                             static_cast<GLsizei>(rect.GetHeight()), tuple.format, tuple.type,
                             &gl_buffer[mip_map][buffer_offset]);
             break;
         case SurfaceTarget::Texture3D:
-<<<<<<< HEAD
             glTexSubImage3D(SurfaceTargetToGL(params.target), mip_map, x0, y0, 0,
                             static_cast<GLsizei>(rect.GetWidth()),
                             static_cast<GLsizei>(rect.GetHeight()), params.MipDepth(mip_map),
@@ -1028,20 +979,12 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
         case SurfaceTarget::Texture2DArray:
         case SurfaceTarget::TextureCubeArray:
             glTexSubImage3D(SurfaceTargetToGL(params.target), mip_map, x0, y0, 0,
-=======
-        case SurfaceTarget::Texture2DArray:
-            glTexSubImage3D(SurfaceTargetToGL(params.target), 0, x0, y0, 0,
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
                             static_cast<GLsizei>(rect.GetWidth()),
                             static_cast<GLsizei>(rect.GetHeight()), params.depth, tuple.format,
                             tuple.type, &gl_buffer[mip_map][buffer_offset]);
             break;
-<<<<<<< HEAD
         case SurfaceTarget::TextureCubemap: {
             std::size_t start = buffer_offset;
-=======
-        case SurfaceTarget::TextureCubemap:
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
             for (std::size_t face = 0; face < params.depth; ++face) {
                 glTexSubImage2D(static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face), mip_map,
                                 x0, y0, static_cast<GLsizei>(rect.GetWidth()),
@@ -1059,7 +1002,7 @@ void CachedSurface::UploadGLMipmapTexture(u32 mip_map, GLuint read_fb_handle,
                             static_cast<GLsizei>(rect.GetHeight()), tuple.format, tuple.type,
                             &gl_buffer[mip_map][buffer_offset]);
         }
-    }
+    } // namespace OpenGL
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 }
@@ -1266,12 +1209,8 @@ Surface RasterizerCacheOpenGL::RecreateSurface(const Surface& old_surface,
         break;
     case SurfaceTarget::TextureCubemap:
     case SurfaceTarget::Texture2DArray:
-<<<<<<< HEAD
     case SurfaceTarget::TextureCubeArray:
         FastLayeredCopySurface(old_surface, new_surface);
-=======
-        AccurateCopySurface(old_surface, new_surface);
->>>>>>> video_core: Move surface declarations out of gl_rasterizer_cache
         break;
     default:
         LOG_CRITICAL(Render_OpenGL, "Unimplemented surface target={}",

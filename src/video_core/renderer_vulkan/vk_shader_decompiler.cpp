@@ -125,7 +125,7 @@ private:
         for (u32 offset = begin; offset != end && offset != PROGRAM_END; ++offset) {
             const Instruction instr = {program_code[offset]};
             if (const auto opcode = OpCode::Decode(instr)) {
-                switch (opcode->GetId()) {
+                switch (opcode->get().GetId()) {
                 case OpCode::Id::EXIT: {
                     // The EXIT instruction can be predicated, which means that the shader can
                     // conditionally end on this instruction. We have to consider the case where the
@@ -566,14 +566,14 @@ u32 SpirvModule::CompileInstr(u32 offset) {
     }
 
     Name(Emit(OpUndef(t_void)),
-         fmt::format("{}_{}_0x{:016x}", offset, opcode->GetName(), instr.value));
+         fmt::format("{}_{}_0x{:016x}", offset, opcode->get().GetName(), instr.value));
 
     ASSERT_MSG(instr.pred.full_pred != Pred::NeverExecute,
                "NeverExecute predicate not implemented");
 
     // Some instructions (like SSY) don't have a predicate field, they are always
     // unconditionally executed.
-    const bool can_be_predicated = OpCode::IsPredicatedInstruction(opcode->GetId());
+    const bool can_be_predicated = OpCode::IsPredicatedInstruction(opcode->get().GetId());
     const Id no_exec_label = OpLabel();
 
     if (can_be_predicated && instr.pred.pred_index != static_cast<u64>(Pred::UnusedIndex)) {
@@ -583,7 +583,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         Emit(exec_label);
     }
 
-    switch (opcode->GetType()) {
+    switch (opcode->get().GetType()) {
     case OpCode::Type::Arithmetic: {
         Id op_a = GetRegisterAsFloat(instr.gpr8);
         Id op_b = [&]() {
@@ -598,7 +598,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             }
         }();
 
-        switch (opcode->GetId()) {
+        switch (opcode->get().GetId()) {
         case OpCode::Id::MUFU: {
             op_a = GetOperandFloatAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             const Id result = [&]() {
@@ -621,14 +621,14 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             break;
         }
         default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled arithmetic instruction: {}", opcode->GetName());
+            LOG_CRITICAL(HW_GPU, "Unhandled arithmetic instruction: {}", opcode->get().GetName());
             UNREACHABLE();
         }
         }
         break;
     }
     case OpCode::Type::ArithmeticImmediate: {
-        switch (opcode->GetId()) {
+        switch (opcode->get().GetId()) {
         case OpCode::Id::MOV32_IMM: {
             SetRegisterToFloat(instr.gpr0, 0, GetImmediate32(instr), 1, 1);
             break;
@@ -650,7 +650,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             }
         }();
 
-        switch (opcode->GetId()) {
+        switch (opcode->get().GetId()) {
         case OpCode::Id::SHR_C:
         case OpCode::Id::SHR_R:
         case OpCode::Id::SHR_IMM: {
@@ -672,14 +672,14 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                                  1, 1);
             break;
         default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled shift instruction: {}", opcode->GetName());
+            LOG_CRITICAL(HW_GPU, "Unhandled shift instruction: {}", opcode->get().GetName());
             UNREACHABLE();
         }
         }
         break;
     }
     case OpCode::Type::Memory: {
-        switch (opcode->GetId()) {
+        switch (opcode->get().GetId()) {
         case OpCode::Id::LD_A: {
             // Note: Shouldn't this be interp mode flat? As in no interpolation made.
             ASSERT_MSG(instr.gpr8.Value() == Register::ZeroIndex,
@@ -771,14 +771,14 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             break;
         }
         default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled memory instruction: {}", opcode->GetName());
+            LOG_CRITICAL(HW_GPU, "Unhandled memory instruction: {}", opcode->get().GetName());
             UNREACHABLE();
         }
         }
         break;
     }
     default: {
-        switch (opcode->GetId()) {
+        switch (opcode->get().GetId()) {
         case OpCode::Id::EXIT: {
             if (stage == ShaderStage::Fragment) {
                 EmitFragmentOutputsWrite();
@@ -822,7 +822,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             break;
         }
         default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled instruction: {}", opcode->GetName());
+            LOG_CRITICAL(HW_GPU, "Unhandled instruction: {}", opcode->get().GetName());
             UNREACHABLE();
         }
         }
