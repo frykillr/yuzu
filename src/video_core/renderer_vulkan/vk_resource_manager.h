@@ -317,6 +317,12 @@ public:
     vk::Framebuffer CreateFramebuffer(VulkanFence& fence,
                                       const vk::FramebufferCreateInfo& framebuffer_ci);
 
+    vk::Pipeline CreateGraphicsPipeline(VulkanFence& fence,
+                                        const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci);
+
+    vk::PipelineLayout CreatePipelineLayout(VulkanFence& fence,
+                                            const vk::PipelineLayoutCreateInfo& pipeline_layout_ci);
+
 private:
     template <typename T>
     using ResourceVector = std::vector<std::unique_ptr<Resource::TransientEntry<T>>>;
@@ -324,6 +330,8 @@ private:
     using RenderPassEntry = Resource::OneShotEntry<vk::RenderPass>;
     using ImageViewEntry = Resource::OneShotEntry<vk::ImageView>;
     using FramebufferEntry = Resource::OneShotEntry<vk::Framebuffer>;
+    using PipelineEntry = Resource::OneShotEntry<vk::Pipeline>;
+    using PipelineLayoutEntry = Resource::OneShotEntry<vk::PipelineLayout>;
 
     template <typename T>
     T& CommitFreeResource(ResourceVector<T>& resources, VulkanFence& commit_fence);
@@ -362,6 +370,8 @@ private:
     std::vector<std::unique_ptr<RenderPassEntry>> renderpasses;
     std::vector<std::unique_ptr<ImageViewEntry>> image_views;
     std::vector<std::unique_ptr<FramebufferEntry>> framebuffers;
+    std::vector<std::unique_ptr<PipelineEntry>> pipelines;
+    std::vector<std::unique_ptr<PipelineLayoutEntry>> pipeline_layouts;
 };
 
 } // namespace Vulkan

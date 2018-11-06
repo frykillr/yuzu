@@ -241,7 +241,9 @@ private:
     static constexpr std::size_t PRED_COUNT = 0xf; // Value untested.
 
     static constexpr u32 MAX_CONSTBUFFER_SIZE = 0x10000;
-    static constexpr u32 MAX_CONSTBUFFER_ELEMENTS = MAX_CONSTBUFFER_SIZE / sizeof(float);
+    static constexpr u32 MAX_CONSTBUFFER_ELEMENTS = MAX_CONSTBUFFER_SIZE / (4 * sizeof(float));
+
+    static constexpr u32 CBUF_STRIDE = 16;
 
     const ProgramCode& program_code;
     const u32 main_offset;
@@ -294,9 +296,12 @@ private:
 
     const Id t_ubo_float = Name(OpTypePointer(spv::StorageClass::Uniform, t_float), "ubo_float");
 
-    const Id t_cbuf_array =
-        Name(OpTypeArray(t_float, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "cbuf_array");
-    const Id t_cbuf_ubo = Name(OpTypePointer(spv::StorageClass::Uniform, t_cbuf_array), "cbuf_ubo");
+    const Id t_cbuf_array = Decorate(
+        Name(OpTypeArray(t_float4, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "cbuf_array"),
+        spv::Decoration::ArrayStride, {CBUF_STRIDE});
+    const Id t_cbuf_struct = Name(OpTypeStruct({t_cbuf_array}), "cbuf_struct");
+    const Id t_cbuf_ubo =
+        Name(OpTypePointer(spv::StorageClass::Uniform, t_cbuf_struct), "cbuf_ubo");
 
     const Id t_bool_function = OpTypeFunction(t_bool);
 

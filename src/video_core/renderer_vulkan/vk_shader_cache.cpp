@@ -60,6 +60,7 @@ CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
     shader_module = device.createShaderModuleUnique(shader_module_ci);
 
     CreateDescriptorSetLayout();
+    CreateDescriptorPool();
 }
 
 void CachedShader::CreateDescriptorSetLayout() {
@@ -69,8 +70,21 @@ void CachedShader::CreateDescriptorSetLayout() {
                             MaxwellToVK::ShaderStage(program_type), nullptr});
     }
 
-    device.createDescriptorSetLayoutUnique(
+    descriptor_set_layout = device.createDescriptorSetLayoutUnique(
         {{}, static_cast<u32>(bindings.size()), bindings.data()});
+}
+
+void CachedShader::CreateDescriptorPool() {
+    const std::array<vk::DescriptorPoolSize, 1> pool_sizes{
+        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1)};
+    const vk::DescriptorPoolCreateInfo pool_ci(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+                                               1, static_cast<u32>(pool_sizes.size()),
+                                               pool_sizes.data());
+    descriptor_pool = device.createDescriptorPoolUnique(pool_ci);
+
+    const vk::DescriptorSetAllocateInfo descriptor_set_ai(*descriptor_pool, 1,
+                                                          &descriptor_set_layout.get());
+    descriptor_set = std::move(device.allocateDescriptorSetsUnique(descriptor_set_ai)[0]);
 }
 
 VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)

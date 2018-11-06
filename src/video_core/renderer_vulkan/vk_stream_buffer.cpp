@@ -28,13 +28,13 @@ public:
     }
 
     void Setup(VulkanFence& new_fence) {
-        fence = &new_fence;
-        is_signaled = false;
-
         std::unique_lock lock(mutex);
         if (fence) {
             fence->Unprotect(this);
         }
+
+        fence = &new_fence;
+        is_signaled = false;
         fence->Protect(this);
     }
 

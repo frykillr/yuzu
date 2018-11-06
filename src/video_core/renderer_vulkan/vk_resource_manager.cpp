@@ -351,6 +351,20 @@ vk::Framebuffer VulkanResourceManager::CreateFramebuffer(
     return CreateOneShot(fence, framebuffers, device.createFramebufferUnique(framebuffer_ci));
 }
 
+vk::Pipeline VulkanResourceManager::CreateGraphicsPipeline(
+    VulkanFence& fence, const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci) {
+
+    return CreateOneShot(fence, pipelines,
+                         device.createGraphicsPipelineUnique({}, graphics_pipeline_ci));
+}
+
+vk::PipelineLayout VulkanResourceManager::CreatePipelineLayout(
+    VulkanFence& fence, const vk::PipelineLayoutCreateInfo& pipeline_layout_ci) {
+
+    return CreateOneShot(fence, pipeline_layouts,
+                         device.createPipelineLayoutUnique(pipeline_layout_ci));
+}
+
 template <typename T>
 T& VulkanResourceManager::CommitFreeResource(ResourceVector<T>& resources,
                                              VulkanFence& commit_fence) {

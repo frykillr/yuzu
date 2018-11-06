@@ -352,13 +352,14 @@ Id SpirvModule::GetImmediate32(const Instruction& instr) {
     return Emit(OpBitcast(t_float, Constant(t_uint, instr.alu.GetImm20_32())));
 }
 
-/// Generates code representing a uniform (C buffer) register, interpreted as the input type.
 Id SpirvModule::GetUniform(u64 cbuf_index, u64 offset, Id type, Register::Size size) {
     const Id cbuf = DeclareUniform(cbuf_index);
     declr_const_buffers[cbuf_index].MarkAsUsed(binding, offset, cbuf_index, stage);
 
     const Id subindex = Constant(t_sint, static_cast<s32>(offset / 4));
-    Id value = Emit(OpLoad(t_float, Emit(OpAccessChain(t_ubo_float, cbuf, {subindex}))));
+    const Id elem = Constant(t_sint, static_cast<s32>(offset % 4));
+    Id value = Emit(OpLoad(
+        t_float, Emit(OpAccessChain(t_ubo_float, cbuf, {Constant(t_uint, 0), subindex, elem}))));
 
     if (type != t_float) {
         value = Emit(OpBitcast(type, value));
@@ -370,8 +371,12 @@ Id SpirvModule::GetUniformIndirect(u64 cbuf_index, s64 offset, Id index, Id type
     const Id cbuf = DeclareUniform(cbuf_index);
     declr_const_buffers[cbuf_index].MarkAsUsedIndirect(binding, cbuf_index, stage);
 
-    const Id subindex = Emit(OpIAdd(t_sint, index, Constant(t_sint, static_cast<s32>(offset / 4))));
-    const Id value = Emit(OpLoad(t_float, Emit(OpAccessChain(t_ubo_float, cbuf, {subindex}))));
+    const Id final_offset =
+        Emit(OpIAdd(t_uint, index, Constant(t_uint, static_cast<u32>(offset / 4))));
+    const Id subindex = Emit(OpUDiv(t_uint, final_offset, Constant(t_uint, 4)));
+    const Id elem = Emit(OpUMod(t_uint, final_offset, Constant(t_uint, 4)));
+    const Id value = Emit(OpLoad(
+        t_float, Emit(OpAccessChain(t_ubo_float, cbuf, {Constant(t_uint, 0), subindex, elem}))));
 
     if (type == t_float) {
         return value;
@@ -383,10 +388,8 @@ Id SpirvModule::DeclareUniform(u64 cbuf_index) {
     if (declr_const_buffers[cbuf_index].IsUsed()) {
         return cbufs[cbuf_index];
     }
-    constexpr u32 UBO_STRIDE = 4;
     const Id variable = AddGlobalVariable(Name(OpVariable(t_cbuf_ubo, spv::StorageClass::Uniform),
                                                fmt::format("cbuf{}", cbuf_index)));
-    Decorate(variable, spv::Decoration::ArrayStride, {UBO_STRIDE});
     Decorate(variable, spv::Decoration::Binding, {binding});
     Decorate(variable, spv::Decoration::DescriptorSet, {descriptor_set});
     return cbufs[cbuf_index] = variable;
@@ -411,8 +414,7 @@ Id SpirvModule::DeclareInputAttribute(Attribute::Index attribute,
         UNREACHABLE();
     }
 
-    const Id variable =
-        AddGlobalVariable(OpVariable(t_in_float4, spv::StorageClass::Input, v_float4_zero));
+    const Id variable = AddGlobalVariable(OpVariable(t_in_float4, spv::StorageClass::Input));
     Name(variable, fmt::format("input_attr_{}", index));
 
     // When the stage is not vertex, the first varyings are reserved for emulation values (like
@@ -422,6 +424,7 @@ Id SpirvModule::DeclareInputAttribute(Attribute::Index attribute,
 
     const InputAttributeEntry entry{variable, input_mode};
     declr_input_attribute.insert(std::make_pair(attribute, entry));
+    interfaces.push_back(variable);
     return entry.id;
 }
 
@@ -435,6 +438,7 @@ Id SpirvModule::DeclareOutputAttribute(u32 index) {
     Decorate(variable, spv::Decoration::Location, {VARYING_START_LOCATION});
 
     output_attrs.insert(std::make_pair(index, variable));
+    interfaces.push_back(variable);
     return variable;
 }
 
@@ -905,6 +909,10 @@ void SpirvModule::DeclareFragmentOutputs() {
 SpirvModule::SpirvModule(const ProgramCode& program_code, u32 main_offset, ShaderStage stage)
     : Sirit::Module(0x00010000), program_code(program_code), main_offset(main_offset), stage(stage),
       descriptor_set(static_cast<u32>(stage)) {
+
+    Decorate(t_cbuf_struct, spv::Decoration::Block);
+    MemberDecorate(t_cbuf_struct, 0, spv::Decoration::Offset, {0});
+    MemberName(t_cbuf_struct, 0, "cbuf_array");
 
     std::memcpy(&header, program_code.data(), sizeof(Tegra::Shader::Header));
 

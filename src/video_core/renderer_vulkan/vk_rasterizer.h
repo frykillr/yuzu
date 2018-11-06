@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 #include <vulkan/vulkan.hpp>
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
@@ -16,6 +17,7 @@ class EmuWindow;
 namespace Vulkan {
 
 struct VulkanScreenInfo;
+class VulkanFence;
 class VulkanSync;
 class VulkanRasterizerCache;
 class VulkanResourceManager;
@@ -23,6 +25,9 @@ class VulkanMemoryManager;
 class VulkanDevice;
 class VulkanShaderCache;
 class VulkanBufferCache;
+
+class PipelineState;
+struct FramebufferInfo;
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
 public:
@@ -50,10 +55,12 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
-    void SetupShaders(vk::PrimitiveTopology primitive_topology);
+    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, bool preserve_contents);
 
-    void SetupConstBuffers(Shader shader, Maxwell::ShaderStage stage,
-                           vk::ShaderStageFlagBits stage_bits);
+    void SetupShaders(PipelineState& state, vk::PrimitiveTopology primitive_topology);
+
+    void SetupConstBuffers(PipelineState& state, Shader shader, Maxwell::ShaderStage stage,
+                           vk::DescriptorSet descriptor_set);
 
     Core::Frontend::EmuWindow& render_window;
     VulkanScreenInfo& screen_info;

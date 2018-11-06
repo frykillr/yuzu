@@ -40,8 +40,14 @@ public:
     }
 
     /// Gets the descriptor set layout of the shader.
-    vk::DescriptorSetLayout GetDescriptorSetLayout() const {
+    vk::DescriptorSetLayout GetSetLayout() const {
         return *descriptor_set_layout;
+    }
+
+    /// Gets a descriptor set from the internal pool.
+    vk::DescriptorSet GetDescriptorSet() const {
+        // FIXME(Rodrigo): Fence and stage this.
+        return *descriptor_set;
     }
 
     /// Gets the module entries for the shader.
@@ -51,6 +57,7 @@ public:
 
 private:
     void CreateDescriptorSetLayout();
+    void CreateDescriptorPool();
 
     const VAddr addr;
     const Maxwell::ShaderProgram program_type;
@@ -61,6 +68,8 @@ private:
 
     vk::UniqueShaderModule shader_module;
     vk::UniqueDescriptorSetLayout descriptor_set_layout;
+    vk::UniqueDescriptorPool descriptor_pool;
+    vk::UniqueDescriptorSet descriptor_set;
 };
 
 class VulkanShaderCache final : public RasterizerCache<Shader> {
