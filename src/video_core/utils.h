@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <glad/glad.h>
 #include "common/common_types.h"
 
 namespace VideoCore {
