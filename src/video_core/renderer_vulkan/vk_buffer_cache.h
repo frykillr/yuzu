@@ -6,7 +6,6 @@
 
 #include <cstddef>
 #include <memory>
-#include <mutex>
 #include <tuple>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
@@ -47,7 +46,6 @@ protected:
 
 private:
     std::unique_ptr<VulkanStreamBuffer> stream_buffer;
-    std::mutex mutex;
 
     u8* buffer_ptr = nullptr;
     u64 buffer_offset = 0;

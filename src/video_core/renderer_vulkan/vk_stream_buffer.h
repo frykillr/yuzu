@@ -5,7 +5,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <tuple>
 #include <vector>
@@ -64,8 +63,6 @@ private:
 
     std::vector<std::unique_ptr<VulkanStreamBufferResource>> resources;
     u32 used_resources{};
-
-    std::mutex mutex;
 };
 
 } // namespace Vulkan

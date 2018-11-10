@@ -14,6 +14,7 @@
 namespace Vulkan {
 
 class VulkanDevice;
+class VulkanFence;
 
 class CachedShader;
 using Shader = std::shared_ptr<CachedShader>;
@@ -22,6 +23,9 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 class CachedShader final : public RasterizerCacheObject {
 public:
     CachedShader(VulkanDevice& device_handler, VAddr addr, Maxwell::ShaderProgram program_type);
+
+    /// Gets a descriptor set from the internal pool.
+    vk::DescriptorSet CommitDescriptorSet(VulkanFence& fence);
 
     VAddr GetAddr() const override {
         return addr;
@@ -42,12 +46,6 @@ public:
     /// Gets the descriptor set layout of the shader.
     vk::DescriptorSetLayout GetSetLayout() const {
         return *descriptor_set_layout;
-    }
-
-    /// Gets a descriptor set from the internal pool.
-    vk::DescriptorSet GetDescriptorSet() const {
-        // FIXME(Rodrigo): Fence and stage this.
-        return *descriptor_set;
     }
 
     /// Gets the module entries for the shader.

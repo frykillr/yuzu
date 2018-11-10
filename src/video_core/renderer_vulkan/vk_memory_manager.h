@@ -5,7 +5,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <tuple>
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
@@ -76,7 +75,6 @@ private:
     const bool is_memory_unified;
 
     std::vector<std::unique_ptr<VulkanMemoryAllocation>> allocs;
-    std::mutex mutex;
 };
 
 } // namespace Vulkan

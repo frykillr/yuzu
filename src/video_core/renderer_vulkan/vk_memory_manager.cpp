@@ -137,8 +137,6 @@ VulkanMemoryManager::~VulkanMemoryManager() = default;
 
 const VulkanMemoryCommit* VulkanMemoryManager::Commit(const vk::MemoryRequirements& reqs,
                                                       bool host_visible) {
-    std::unique_lock lock(mutex);
-
     const vk::MemoryPropertyFlags wanted_properties =
         host_visible
             ? vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
@@ -175,7 +173,6 @@ void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
     if (commit == nullptr) {
         return;
     }
-    std::unique_lock lock(mutex);
     commit->GetAllocation()->Free(commit);
 }
 

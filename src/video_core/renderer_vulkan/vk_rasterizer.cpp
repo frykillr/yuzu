@@ -161,7 +161,7 @@ void RasterizerVulkan::DrawArrays() {
 
     buffer_cache->Reserve(buffer_size);
 
-    SetupShaders(state, primitive_topology);
+    SetupShaders(fence, state, primitive_topology);
 
     buffer_cache->Send(sync, fence);
 
@@ -330,7 +330,7 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
     return info;
 }
 
-void RasterizerVulkan::SetupShaders(PipelineState& state,
+void RasterizerVulkan::SetupShaders(VulkanFence& fence, PipelineState& state,
                                     vk::PrimitiveTopology primitive_topology) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
 
@@ -344,7 +344,7 @@ void RasterizerVulkan::SetupShaders(PipelineState& state,
         }
 
         Shader shader = shader_cache->GetStageProgram(program);
-        const vk::DescriptorSet descriptor_set = shader->GetDescriptorSet();
+        const vk::DescriptorSet descriptor_set = shader->CommitDescriptorSet(fence);
 
         const std::size_t stage{index == 0 ? 0 : index - 1}; // Stage indices are 0 - 5
         const vk::ShaderStageFlagBits stage_bits = MaxwellToVK::ShaderStage(program);

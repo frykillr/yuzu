@@ -63,6 +63,15 @@ CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
     CreateDescriptorPool();
 }
 
+vk::DescriptorSet CachedShader::CommitDescriptorSet(VulkanFence& fence) {
+    if (!descriptor_set) {
+        const vk::DescriptorSetAllocateInfo descriptor_set_ai(*descriptor_pool, 1,
+                                                              &descriptor_set_layout.get());
+        descriptor_set = std::move(device.allocateDescriptorSetsUnique(descriptor_set_ai)[0]);
+    }
+    return *descriptor_set;
+}
+
 void CachedShader::CreateDescriptorSetLayout() {
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
     for (const auto& cbuf_entry : entries.const_buffer_entries) {
@@ -81,10 +90,6 @@ void CachedShader::CreateDescriptorPool() {
                                                1, static_cast<u32>(pool_sizes.size()),
                                                pool_sizes.data());
     descriptor_pool = device.createDescriptorPoolUnique(pool_ci);
-
-    const vk::DescriptorSetAllocateInfo descriptor_set_ai(*descriptor_pool, 1,
-                                                          &descriptor_set_layout.get());
-    descriptor_set = std::move(device.allocateDescriptorSetsUnique(descriptor_set_ai)[0]);
 }
 
 VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)

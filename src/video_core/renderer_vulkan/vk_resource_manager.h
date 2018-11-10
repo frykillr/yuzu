@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <mutex>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
@@ -14,7 +12,10 @@ namespace Vulkan {
 
 class VulkanDevice;
 class VulkanFence;
+class VulkanFencedPool;
 class VulkanResourceManager;
+class VulkanSemaphorePool;
+class VulkanCommandBufferPool;
 
 namespace Resource {
 
@@ -29,7 +30,6 @@ protected:
     /**
      * Signals the object that an owning fence has been signaled.
      * @param signaling_fence Fence that signals its usage end.
-     * @remarks Thread safe.
      */
     virtual void OnFenceRemoval(VulkanFence* signaling_fence) = 0;
 };
@@ -42,14 +42,10 @@ class Persistent : public Base {
     friend class VulkanResourceManager;
 
 public:
-    explicit Persistent(VulkanResourceManager& resource_manager, vk::Device device,
-                        std::mutex& external_fences_mutex);
+    explicit Persistent(VulkanResourceManager& resource_manager, vk::Device device);
     virtual ~Persistent();
 
-    /**
-     * Waits for all operations to finish.
-     * @remarks Thread safe.
-     */
+    /// Waits for all operations to finish.
     void Wait();
 
     /**
@@ -58,7 +54,6 @@ public:
      * @param new_fence Fence to hold the right to read from the resource.
      * @returns A semaphore that's going to be signaled (or is already signaled) when the write
      * operation finishes. Read operations have to be protected with it.
-     * @remarks Thread safe.
      */
     vk::Semaphore ReadProtect(VulkanFence& new_fence);
 
@@ -67,12 +62,11 @@ public:
      * and write operations if they exist.
      * @param new_fence Fence to hold the write to write to the resource.
      * @returns A semaphore that has to be signaled when the write operation finishes.
-     * @remarks Thread safe.
      */
     vk::Semaphore WriteProtect(VulkanFence& new_fence);
 
 protected:
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence);
+    void OnFenceRemoval(VulkanFence* signaling_fence) override;
 
 private:
     VulkanResourceManager& resource_manager;
@@ -83,10 +77,6 @@ private:
     std::vector<VulkanFence*> read_fences; ///< Fence protecting read operations.
 
     VulkanFence* write_fence; ///< Fence protecting write operations. Null when it's free.
-
-    std::mutex& external_fences_mutex; ///< Protects managed fence changes.
-    std::mutex ownership_mutex;        ///< Protects ownership changes.
-    std::mutex fence_change_mutex;     ///< Protects internal changes in the owned fences.
 };
 
 /**
@@ -101,67 +91,10 @@ public:
     bool IsSignaled() const;
 
 protected:
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence) override;
+    void OnFenceRemoval(VulkanFence* signaling_fence) override;
 
 private:
     bool is_signaled{};
-    mutable std::mutex mutex;
-};
-
-/**
- * Transient resources are those you just use and discard for reusage. An example of this are
- * semaphores and command buffers.
- */
-class Transient : public Base {
-    friend class VulkanResourceManager;
-
-public:
-    explicit Transient(vk::Device device);
-    virtual ~Transient();
-
-    /**
-     * Tries to reserve usage of the resource.
-     * @remarks Thread safe.
-     * @params commit_fence Fence protecting the resource.
-     * @returns True if the resource has been claimed.
-     */
-    bool TryCommit(VulkanFence& commit_fence);
-
-    /**
-     * Wait for the resource to be available and commits.
-     * @params commit_fence Fence protecting the resource.
-     * @remarks Thread safe.
-     */
-    void Commit(VulkanFence& commit_fence);
-
-protected:
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence) override;
-
-private:
-    /// Backend for TryCommit and Commit, thread unsafe.
-    bool UnsafeTryCommit(VulkanFence& commit_fence);
-
-    const vk::Device device;
-
-    VulkanFence* fence{};
-    bool is_claimed{};
-    std::mutex mutex;
-};
-
-template <typename T>
-class TransientEntry final : public Transient {
-public:
-    TransientEntry(T resource, vk::Device device)
-        : Transient(device), resource(std::move(resource)) {}
-    virtual ~TransientEntry() = default;
-
-    /// Retreives the resource.
-    T& GetHandle() {
-        return resource;
-    }
-
-private:
-    T resource;
 };
 
 template <typename T>
@@ -192,40 +125,35 @@ using VulkanResource = Resource::Base;
  */
 class VulkanFence {
     friend class Resource::Persistent;
-    friend class Resource::Transient;
     friend class VulkanResourceManager;
 
 public:
-    explicit VulkanFence(vk::UniqueFence handle, vk::Device device, std::mutex& mutex);
+    explicit VulkanFence(vk::UniqueFence handle, vk::Device device);
     ~VulkanFence();
 
     /**
      * Waits for the fence to be signaled.
      * @warning You must have ownership of the fence and it has to be previously sent to a queue to
      * call this function.
-     * @remarks Thread safe.
      */
     void Wait();
 
     /**
-     * Releases ownership of the thread. Call after it has been sent to an execution queue.
+     * Releases ownership of the fence. Call after it has been sent to an execution queue.
      * Unmanaged usage of the fence after the call will result in undefined behavior because it may
      * be being used for something else.
-     * @remarks Thread safe.
      */
     void Release();
 
     /**
      * Protects a resource with this fence.
      * @param resource Resource to protect.
-     * @remarks Thread safe.
      */
     void Protect(VulkanResource* resource);
 
     /**
      * Removes protection for a resource.
      * @param resource Resource to unprotect.
-     * @remarks Thread safe.
      */
     void Unprotect(VulkanResource* resource);
 
@@ -240,7 +168,6 @@ private:
 
     /**
      * Updates the fence status.
-     * @warning Thread unsafe, it must be externally synchronized.
      * @warning Waiting for the owner might soft lock the execution.
      * @param gpu_wait Wait for the fence to be signaled by the driver.
      * @param owner_wait Wait for the owner to signal its freedom.
@@ -248,22 +175,12 @@ private:
      */
     bool Tick(bool gpu_wait, bool owner_wait);
 
-    /// Backend for Protect
-    void UnsafeProtect(VulkanResource* resource);
-
     const vk::Device device;
-    std::mutex& fences_mutex;
-
-    std::mutex ownership_mutex;
-    std::mutex wait_mutex;
-    std::condition_variable ownership_watch;
 
     vk::UniqueFence handle;
     std::vector<VulkanResource*> protected_resources;
     bool is_owned{}; /// The fence has been commited but not released yet.
     bool is_used{};  /// The fence has been commited but it has not been checked to be free.
-
-    bool is_being_waited{};
 };
 
 class VulkanFenceWatch final : public VulkanResource {
@@ -271,31 +188,54 @@ public:
     explicit VulkanFenceWatch();
     ~VulkanFenceWatch();
 
-    /**
-     * Waits for a watched fence if it is bound.
-     * @remarks Thread safe.
-     */
+    /// Waits for a watched fence if it is bound.
     void Wait();
 
     /**
      * Waits for a previous fence and watches a new one.
      * @param new_fence New fence to wait to.
-     * @remarks Thread safe.
      */
     void Watch(VulkanFence& new_fence);
 
+    /**
+     * Checks if it's currently being watched and starts watching it if it's available.
+     * @returns True if a watch has started, false if it's being watched.
+     */
+    bool TryWatch(VulkanFence& new_fence);
+
 protected:
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence);
+    void OnFenceRemoval(VulkanFence* signaling_fence) override;
 
 private:
     VulkanFence* fence{};
-    std::mutex mutex;
+};
+
+class VulkanFencedPool {
+public:
+    explicit VulkanFencedPool(std::size_t initial_capacity, std::size_t grow_step);
+    explicit VulkanFencedPool(std::size_t capacity);
+    virtual ~VulkanFencedPool();
+
+protected:
+    virtual void Allocate(std::size_t begin, std::size_t end);
+
+    std::size_t ResourceCommit(VulkanFence& fence);
+
+private:
+    std::size_t HandleFullPool();
+
+    void Grow(std::size_t new_entries);
+
+    const bool does_allocation;
+    const std::size_t grow_step;
+
+    std::size_t free_iterator = 0;
+    std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
 };
 
 /**
  * The resource manager handles all resources that can be protected with a fence avoiding
  * driver-side or GPU-side race conditions. Use flow is documented in VulkanFence.
- * All public methods are thread safe.
  */
 class VulkanResourceManager final {
 public:
@@ -324,17 +264,11 @@ public:
                                             const vk::PipelineLayoutCreateInfo& pipeline_layout_ci);
 
 private:
-    template <typename T>
-    using ResourceVector = std::vector<std::unique_ptr<Resource::TransientEntry<T>>>;
-
     using RenderPassEntry = Resource::OneShotEntry<vk::RenderPass>;
     using ImageViewEntry = Resource::OneShotEntry<vk::ImageView>;
     using FramebufferEntry = Resource::OneShotEntry<vk::Framebuffer>;
     using PipelineEntry = Resource::OneShotEntry<vk::Pipeline>;
     using PipelineLayoutEntry = Resource::OneShotEntry<vk::PipelineLayout>;
-
-    template <typename T>
-    T& CommitFreeResource(ResourceVector<T>& resources, VulkanFence& commit_fence);
 
     template <typename EntryType, typename HandleType>
     HandleType CreateOneShot(VulkanFence& fence, std::vector<std::unique_ptr<EntryType>>& vector,
@@ -347,24 +281,14 @@ private:
 
     void GrowFences(std::size_t new_fences_count);
 
-    void CreateCommands();
-    void CreateSemaphores();
-
     const vk::Device device;
     const u32 graphics_family;
 
-    std::mutex fences_mutex;
     std::vector<std::unique_ptr<VulkanFence>> fences;
 
-    vk::UniqueCommandPool command_pool;
-    ResourceVector<vk::CommandBuffer> command_buffers;
+    std::unique_ptr<VulkanCommandBufferPool> command_buffer_pool;
+    std::unique_ptr<VulkanSemaphorePool> semaphore_pool;
 
-    vk::UniqueDescriptorPool descriptor_pool;
-    ResourceVector<vk::DescriptorSet> descriptor_set;
-
-    ResourceVector<vk::UniqueSemaphore> semaphores;
-
-    std::mutex one_shots;
     u32 tick_creations{};
 
     std::vector<std::unique_ptr<RenderPassEntry>> renderpasses;

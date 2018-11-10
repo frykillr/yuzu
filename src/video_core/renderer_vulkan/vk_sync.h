@@ -5,7 +5,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
@@ -60,7 +59,6 @@ private:
 
     vk::Semaphore previous_semaphore{};
 
-    std::mutex mutex;
     bool recording_submit{};
 };
 

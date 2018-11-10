@@ -64,8 +64,6 @@ std::tuple<u8*, u64, vk::Buffer> VulkanBufferCache::ReserveMemory(std::size_t si
 }
 
 void VulkanBufferCache::Reserve(std::size_t max_size) {
-    mutex.lock();
-
     bool invalidate;
     std::tie(buffer_ptr, buffer_offset_base, buffer_handle, invalidate) =
         stream_buffer->Reserve(max_size, false);
@@ -78,7 +76,6 @@ void VulkanBufferCache::Reserve(std::size_t max_size) {
 
 void VulkanBufferCache::Send(VulkanSync& sync, VulkanFence& fence) {
     stream_buffer->Send(sync, fence, buffer_offset - buffer_offset_base);
-    mutex.unlock();
 }
 
 void VulkanBufferCache::AlignBuffer(std::size_t alignment) {

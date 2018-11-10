@@ -18,7 +18,6 @@ VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevi
 VulkanSync::~VulkanSync() = default;
 
 VulkanFence& VulkanSync::PrepareExecute(bool take_fence_ownership) {
-    mutex.lock();
     recording_submit = true;
 
     this->take_fence_ownership = take_fence_ownership;
@@ -71,7 +70,6 @@ void VulkanSync::Execute() {
     calls.push_back(std::move(current_call));
 
     recording_submit = false;
-    mutex.unlock();
 }
 
 vk::CommandBuffer VulkanSync::BeginRecord() {
@@ -90,8 +88,6 @@ void VulkanSync::EndRecord(vk::CommandBuffer cmdbuf) {
 }
 
 vk::Semaphore VulkanSync::QuerySemaphore() {
-    std::unique_lock lock(mutex);
-
     vk::Semaphore semaphore = previous_semaphore;
     previous_semaphore = vk::Semaphore(nullptr);
     return semaphore;

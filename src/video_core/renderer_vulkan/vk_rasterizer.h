@@ -57,7 +57,8 @@ private:
 
     FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, bool preserve_contents);
 
-    void SetupShaders(PipelineState& state, vk::PrimitiveTopology primitive_topology);
+    void SetupShaders(VulkanFence& fence, PipelineState& state,
+                      vk::PrimitiveTopology primitive_topology);
 
     void SetupConstBuffers(PipelineState& state, Shader shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);

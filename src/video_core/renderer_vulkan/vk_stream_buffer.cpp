@@ -28,7 +28,6 @@ public:
     }
 
     void Setup(VulkanFence& new_fence) {
-        std::unique_lock lock(mutex);
         if (fence) {
             fence->Unprotect(this);
         }
@@ -39,7 +38,6 @@ public:
     }
 
     void Wait() {
-        std::unique_lock lock(mutex);
         if (!is_signaled) {
             fence->Wait();
         }
@@ -47,15 +45,11 @@ public:
 
 protected:
     virtual void OnFenceRemoval(VulkanFence* signaling_fence) {
-        std::unique_lock lock(mutex);
-
         ASSERT(signaling_fence == fence);
         is_signaled = true;
     }
 
 private:
-    std::mutex mutex;
-
     VulkanFence* fence{};
     bool is_signaled{};
 };
@@ -78,8 +72,6 @@ VulkanStreamBuffer::~VulkanStreamBuffer() {
 }
 
 std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, bool keep_in_host) {
-    mutex.lock();
-
     ASSERT(size <= buffer_size);
     mapped_size = size;
 
@@ -124,8 +116,6 @@ void VulkanStreamBuffer::Send(VulkanSync& sync, VulkanFence& fence, u64 size) {
     resource->Setup(fence);
 
     buffer_pos += size;
-
-    mutex.unlock();
 }
 
 void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
