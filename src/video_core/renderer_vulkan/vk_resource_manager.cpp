@@ -202,6 +202,7 @@ void VulkanFenceWatch::OnFenceRemoval(VulkanFence* signaling_fence) {
 }
 
 VulkanFencedPool::VulkanFencedPool() = default;
+
 VulkanFencedPool::~VulkanFencedPool() = default;
 
 void VulkanFencedPool::InitResizable(std::size_t initial_capacity, std::size_t grow_step) {
@@ -223,7 +224,7 @@ void VulkanFencedPool::Allocate(std::size_t begin, std::size_t end) {
 std::size_t VulkanFencedPool::ResourceCommit(VulkanFence& fence) {
     const auto Search = [&](std::size_t begin, std::size_t end) -> std::optional<std::size_t> {
         for (std::size_t iterator = begin; iterator < end; ++iterator) {
-            if (watches[free_iterator]->TryWatch(fence)) {
+            if (watches[iterator]->TryWatch(fence)) {
                 // The resource is now being watched, a free resource was successfully found.
                 return iterator;
             }
