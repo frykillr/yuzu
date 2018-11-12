@@ -888,6 +888,20 @@ void SpirvModule::DeclareFragmentOutputs() {
     ASSERT(stage == Maxwell3D::Regs::ShaderStage::Fragment);
 
     for (u32 rt = 0; rt < fs.frag_colors.size(); ++rt) {
+        // Find out if this rendertarget is being used.
+        const bool is_rt_used = [&]() {
+            for (u32 component = 0; component < 4; ++component) {
+                if (header.ps.IsColorComponentOutputEnabled(rt, component)) {
+                    return true;
+                }
+            }
+            return false;
+        }();
+        if (!is_rt_used) {
+            // Skip if the rendertarget is not used.
+            continue;
+        }
+
         const Id variable = AddGlobalVariable(OpVariable(t_out_float4, spv::StorageClass::Output));
         Name(variable, fmt::format("frag_color{}", rt));
         Decorate(variable, spv::Decoration::Location, {rt});
