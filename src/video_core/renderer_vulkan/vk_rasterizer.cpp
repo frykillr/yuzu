@@ -45,7 +45,11 @@ public:
 
         set_layouts[index] = set_layout;
         stages[index] = {{}, stage, shader_module, "main", nullptr};
-        descriptor_sets[index] = descriptor_set;
+
+        // A null descriptor set means that the stage is not using descriptors, it must be skipped.
+        if (descriptor_set) {
+            descriptor_sets[descriptor_sets_count++] = descriptor_set;
+        }
     }
 
     void SetRenderPass(vk::RenderPass renderpass) {
@@ -98,8 +102,8 @@ public:
     }
 
     void BindDescriptors(vk::CommandBuffer cmdbuf) const {
-        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout, 0, stages_count,
-                                  descriptor_sets.data(), 0, nullptr);
+        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout, 0,
+                                  descriptor_sets_count, descriptor_sets.data(), 0, nullptr);
     }
 
 private:
@@ -110,6 +114,8 @@ private:
     u32 stages_count{};
     std::array<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> stages;
     std::array<vk::DescriptorSetLayout, Maxwell::MaxShaderStage> set_layouts;
+
+    u32 descriptor_sets_count{};
     std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets;
 
     u32 bindings_count{};
@@ -164,9 +170,6 @@ void RasterizerVulkan::DrawArrays() {
     SetupShaders(fence, state, primitive_topology);
 
     buffer_cache->Send(sync, fence);
-
-    /// FIXME(Rodrigo): Remove
-    device.waitIdle();
 
     const vk::Pipeline pipeline = state.CreatePipeline(fence, resource_manager);
     state.UpdateDescriptorSets(device);

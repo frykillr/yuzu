@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 #include <vulkan/vulkan.hpp>
@@ -9,12 +10,16 @@
 #include "core/memory.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
 #pragma optimize("", off)
 
 namespace Vulkan {
+
+// How many sets are created per descriptor pool.
+static constexpr std::size_t SETS_PER_POOL = 0x400;
 
 /// Gets the address for the specified shader stage program
 static VAddr GetShaderAddress(Maxwell::ShaderProgram program) {
@@ -31,9 +36,54 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
     return program_code;
 }
 
+class CachedShader::DescriptorPool final : public VulkanFencedPool {
+public:
+    explicit DescriptorPool(vk::Device device,
+                            const std::vector<vk::DescriptorPoolSize>& pool_sizes,
+                            const vk::DescriptorSetLayout layout)
+        : pool_ci(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, SETS_PER_POOL,
+                  static_cast<u32>(stored_pool_sizes.size()), stored_pool_sizes.data()),
+          stored_pool_sizes(pool_sizes), layout(layout), device(device) {
+
+        InitResizable(SETS_PER_POOL, SETS_PER_POOL);
+    }
+
+    ~DescriptorPool() = default;
+
+    vk::DescriptorSet Commit(VulkanFence& fence) {
+        const std::size_t index = ResourceCommit(fence);
+        const auto pool_index = index / SETS_PER_POOL;
+        const auto set_index = index % SETS_PER_POOL;
+        return allocations[pool_index][set_index].get();
+    }
+
+protected:
+    void Allocate(std::size_t begin, std::size_t end) override {
+        ASSERT_MSG(begin % SETS_PER_POOL == 0 && end % SETS_PER_POOL == 0, "Not aligned.");
+
+        auto pool = device.createDescriptorPoolUnique(pool_ci);
+        std::vector<vk::DescriptorSetLayout> layout_clones(SETS_PER_POOL, layout);
+
+        const vk::DescriptorSetAllocateInfo descriptor_set_ai(*pool, SETS_PER_POOL,
+                                                              layout_clones.data());
+
+        pools.push_back(std::move(pool));
+        allocations.push_back(device.allocateDescriptorSetsUnique(descriptor_set_ai));
+    }
+
+private:
+    const vk::Device device;
+    const std::vector<vk::DescriptorPoolSize> stored_pool_sizes;
+    const vk::DescriptorPoolCreateInfo pool_ci;
+    const vk::DescriptorSetLayout layout;
+
+    std::vector<vk::UniqueDescriptorPool> pools;
+    std::vector<std::vector<vk::UniqueDescriptorSet>> allocations;
+};
+
 CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
                            Maxwell::ShaderProgram program_type)
-    : addr{addr},
+    : addr(addr),
       program_type{program_type}, setup{GetShaderCode(addr)}, device{device_handler.GetLogical()} {
 
     VKShader::ProgramResult program_result = [&]() {
@@ -64,12 +114,12 @@ CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
 }
 
 vk::DescriptorSet CachedShader::CommitDescriptorSet(VulkanFence& fence) {
-    if (!descriptor_set) {
-        const vk::DescriptorSetAllocateInfo descriptor_set_ai(*descriptor_pool, 1,
-                                                              &descriptor_set_layout.get());
-        descriptor_set = std::move(device.allocateDescriptorSetsUnique(descriptor_set_ai)[0]);
+    if (descriptor_pool == nullptr) {
+        // If the descriptor pool has not been initialized, it means that the shader doesn't used
+        // descriptors. Return a null descriptor set.
+        return nullptr;
     }
-    return *descriptor_set;
+    return descriptor_pool->Commit(fence);
 }
 
 void CachedShader::CreateDescriptorSetLayout() {
@@ -84,12 +134,19 @@ void CachedShader::CreateDescriptorSetLayout() {
 }
 
 void CachedShader::CreateDescriptorPool() {
-    const std::array<vk::DescriptorPoolSize, 1> pool_sizes{
-        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1)};
-    const vk::DescriptorPoolCreateInfo pool_ci(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-                                               1, static_cast<u32>(pool_sizes.size()),
-                                               pool_sizes.data());
-    descriptor_pool = device.createDescriptorPoolUnique(pool_ci);
+    std::vector<vk::DescriptorPoolSize> pool_sizes;
+
+    if (u32 used_ubos = static_cast<u32>(entries.const_buffer_entries.size()); used_ubos > 0) {
+        pool_sizes.push_back(
+            vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, used_ubos * SETS_PER_POOL));
+    }
+
+    if (pool_sizes.size() == 0) {
+        // If the shader doesn't use descriptor sets, skip the pool creation.
+        return;
+    }
+
+    descriptor_pool = std::make_unique<DescriptorPool>(device, pool_sizes, *descriptor_set_layout);
 }
 
 VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)

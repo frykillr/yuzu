@@ -212,9 +212,11 @@ private:
 
 class VulkanFencedPool {
 public:
-    explicit VulkanFencedPool(std::size_t initial_capacity, std::size_t grow_step);
-    explicit VulkanFencedPool(std::size_t capacity);
+    explicit VulkanFencedPool();
     virtual ~VulkanFencedPool();
+
+    void InitResizable(std::size_t initial_capacity, std::size_t grow_step);
+    void InitStatic(std::size_t capacity);
 
 protected:
     virtual void Allocate(std::size_t begin, std::size_t end);
@@ -226,8 +228,8 @@ private:
 
     void Grow(std::size_t new_entries);
 
-    const bool does_allocation;
-    const std::size_t grow_step;
+    bool does_allocation{};
+    std::size_t grow_step{};
 
     std::size_t free_iterator = 0;
     std::vector<std::unique_ptr<VulkanFenceWatch>> watches;

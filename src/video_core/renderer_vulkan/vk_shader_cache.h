@@ -54,6 +54,8 @@ public:
     }
 
 private:
+    class DescriptorPool;
+
     void CreateDescriptorSetLayout();
     void CreateDescriptorPool();
 
@@ -66,8 +68,7 @@ private:
 
     vk::UniqueShaderModule shader_module;
     vk::UniqueDescriptorSetLayout descriptor_set_layout;
-    vk::UniqueDescriptorPool descriptor_pool;
-    vk::UniqueDescriptorSet descriptor_set;
+    std::unique_ptr<DescriptorPool> descriptor_pool;
 };
 
 class VulkanShaderCache final : public RasterizerCache<Shader> {

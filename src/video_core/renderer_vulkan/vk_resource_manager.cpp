@@ -201,16 +201,20 @@ void VulkanFenceWatch::OnFenceRemoval(VulkanFence* signaling_fence) {
     fence = nullptr;
 }
 
-VulkanFencedPool::VulkanFencedPool(std::size_t initial_capacity, std::size_t grow_step)
-    : does_allocation(true), grow_step(grow_step) {
+VulkanFencedPool::VulkanFencedPool() = default;
+VulkanFencedPool::~VulkanFencedPool() = default;
+
+void VulkanFencedPool::InitResizable(std::size_t initial_capacity, std::size_t grow_step) {
+    does_allocation = true;
+    this->grow_step = grow_step;
     Grow(initial_capacity);
 }
 
-VulkanFencedPool::VulkanFencedPool(std::size_t capacity) : grow_step(0), does_allocation(false) {
+void VulkanFencedPool::InitStatic(std::size_t capacity) {
+    grow_step = 0;
+    does_allocation = false;
     Grow(capacity);
 }
-
-VulkanFencedPool::~VulkanFencedPool() = default;
 
 void VulkanFencedPool::Allocate(std::size_t begin, std::size_t end) {
     UNREACHABLE_MSG("Trying to allocate without an alloc implementation.");
@@ -219,7 +223,7 @@ void VulkanFencedPool::Allocate(std::size_t begin, std::size_t end) {
 std::size_t VulkanFencedPool::ResourceCommit(VulkanFence& fence) {
     const auto Search = [&](std::size_t begin, std::size_t end) -> std::optional<std::size_t> {
         for (std::size_t iterator = begin; iterator < end; ++iterator) {
-            if (!watches[free_iterator]->TryWatch(fence)) {
+            if (watches[free_iterator]->TryWatch(fence)) {
                 // The resource is now being watched, a free resource was successfully found.
                 return iterator;
             }
@@ -259,6 +263,9 @@ std::size_t VulkanFencedPool::HandleFullPool() {
 }
 
 void VulkanFencedPool::Grow(std::size_t new_entries) {
+    if (new_entries == 0) {
+        return;
+    }
     const auto old_capacity = watches.size();
     watches.resize(old_capacity + new_entries);
     std::generate(watches.begin() + old_capacity, watches.end(),
@@ -270,8 +277,8 @@ void VulkanFencedPool::Grow(std::size_t new_entries) {
 
 class VulkanCommandBufferPool final : public VulkanFencedPool {
 public:
-    VulkanCommandBufferPool(vk::Device device, u32 graphics_family)
-        : VulkanFencedPool(COMMAND_BUFFERS_COUNT) {
+    VulkanCommandBufferPool(vk::Device device, u32 graphics_family) {
+        InitStatic(COMMAND_BUFFERS_COUNT);
 
         const vk::CommandPoolCreateInfo pool_ci(
             vk::CommandPoolCreateFlagBits::eTransient |
@@ -296,8 +303,8 @@ private:
 
 class VulkanSemaphorePool final : public VulkanFencedPool {
 public:
-    explicit VulkanSemaphorePool(vk::Device device, u32 graphics_family)
-        : VulkanFencedPool(SEMAPHORES_COUNT) {
+    explicit VulkanSemaphorePool(vk::Device device, u32 graphics_family) {
+        InitStatic(SEMAPHORES_COUNT);
 
         semaphores.resize(SEMAPHORES_COUNT);
         for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
