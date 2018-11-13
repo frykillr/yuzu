@@ -181,8 +181,14 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
 RasterizerVulkan::~RasterizerVulkan() = default;
 
 void RasterizerVulkan::DrawArrays() {
+    if (accelerate_draw == AccelDraw::Disabled)
+        return;
+
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
     const auto& regs = gpu.regs;
+
+    const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
+    ASSERT_MSG(!is_indexed, "Unimplemented");
 
     VulkanFence& fence = sync.PrepareExecute(true);
 
@@ -219,16 +225,20 @@ void RasterizerVulkan::DrawArrays() {
     const vk::RenderPassBeginInfo renderpass_bi(fb_info.renderpass, fb_info.framebuffer,
                                                 {{0, 0}, {1280, 720}}, 0, nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
+    {
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+        state.BindDescriptors(cmdbuf);
+        state.BindVertexBuffers(cmdbuf);
 
-    cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-    state.BindDescriptors(cmdbuf);
-    state.BindVertexBuffers(cmdbuf);
-    cmdbuf.draw(4, 1, 0, 0);
+        // TODO(Rodrigo): Implement indexed vertex buffers.
+        const u32 vertex_count = regs.vertex_buffer.count;
+        const u32 vertex_first = regs.vertex_buffer.first;
 
+        cmdbuf.draw(vertex_count, 1, vertex_first, 0);
+    }
     cmdbuf.endRenderPass();
 
     sync.EndRecord(cmdbuf);
-
     sync.Execute();
 }
 
@@ -315,7 +325,7 @@ bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
 }
 
 bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
-    // TODO
+    accelerate_draw = is_indexed ? AccelDraw::Indexed : AccelDraw::Arrays;
     DrawArrays();
     return true;
 }

@@ -80,6 +80,9 @@ private:
     std::unique_ptr<VulkanRasterizerCache> res_cache;
     std::unique_ptr<VulkanShaderCache> shader_cache;
     std::unique_ptr<VulkanBufferCache> buffer_cache;
+
+    enum class AccelDraw { Disabled, Arrays, Indexed };
+    AccelDraw accelerate_draw = AccelDraw::Disabled;
 };
 
 } // namespace Vulkan
