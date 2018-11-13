@@ -57,6 +57,8 @@ inline vk::Format VertexFormat(const Maxwell::VertexAttribute& attrib) {
         switch (attrib.size) {
         case Maxwell::VertexAttribute::Size::Size_32_32_32_32:
             return vk::Format::eR32G32B32A32Sfloat;
+        case Maxwell::VertexAttribute::Size::Size_32_32_32:
+            return vk::Format::eR32G32B32Sfloat;
         case Maxwell::VertexAttribute::Size::Size_32_32:
             return vk::Format::eR32G32Sfloat;
         }

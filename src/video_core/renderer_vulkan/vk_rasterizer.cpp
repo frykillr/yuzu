@@ -253,7 +253,7 @@ void RasterizerVulkan::Clear() {
         use_color = true;
     }
     if (regs.clear_buffers.Z) {
-        UNIMPLEMENTED_MSG("Depth clear");
+        //UNIMPLEMENTED_MSG("Depth clear");
     }
     if (regs.clear_buffers.S) {
         UNIMPLEMENTED_MSG("Stencil clear");

@@ -12,6 +12,8 @@
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 VulkanBufferCache::VulkanBufferCache(VulkanResourceManager& resource_manager,

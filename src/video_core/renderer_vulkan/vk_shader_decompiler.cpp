@@ -349,7 +349,7 @@ Id SpirvModule::GetImmediate32(const Instruction& instr) {
 
 Id SpirvModule::GetUniform(u64 cbuf_index, u64 offset, Id type, Register::Size size) {
     const Id cbuf = DeclareUniform(cbuf_index);
-    declr_const_buffers[cbuf_index].MarkAsUsed(binding, offset, cbuf_index, stage);
+    declr_const_buffers[cbuf_index].MarkAsUsed(binding, cbuf_index, offset, stage);
 
     const Id subindex = Constant(t_sint, static_cast<s32>(offset / 4));
     const Id elem = Constant(t_sint, static_cast<s32>(offset % 4));
@@ -437,13 +437,13 @@ Id SpirvModule::DeclareOutputAttribute(u32 index) {
     return variable;
 }
 
-Id SpirvModule::GetOperandFloatAbsNeg(Id operand, bool abs, bool neg) {
+Id SpirvModule::GetFloatOperandAbsNeg(Id operand, bool abs, bool neg) {
     Id result = operand;
     if (abs) {
-        result = OpFAbs(t_float, result);
+        result = Emit(OpFAbs(t_float, result));
     }
     if (neg) {
-        result = OpFNegate(t_float, result);
+        result = Emit(OpFNegate(t_float, result));
     }
     return result;
 }
@@ -594,17 +594,61 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         }();
 
         switch (opcode->get().GetId()) {
+        case OpCode::Id::MOV_C:
+        case OpCode::Id::MOV_R: {
+            // MOV does not have neither 'abs' nor 'neg' bits.
+            SetRegisterToFloat(instr.gpr0, 0, op_b, 1, 1);
+            break;
+        }
+        case OpCode::Id::FMUL_C:
+        case OpCode::Id::FMUL_R:
+        case OpCode::Id::FMUL_IMM: {
+            // FMUL does not have 'abs' bits and only the second operand has a 'neg' bit.
+            ASSERT_MSG(instr.fmul.tab5cb8_2 == 0, "FMUL tab5cb8_2({}) is not implemented",
+                       instr.fmul.tab5cb8_2.Value());
+            ASSERT_MSG(instr.fmul.tab5c68_1 == 0, "FMUL tab5cb8_1({}) is not implemented",
+                       instr.fmul.tab5c68_1.Value());
+            ASSERT_MSG(instr.fmul.tab5c68_0 == 1, "FMUL tab5cb8_0({}) is not implemented",
+                       instr.fmul.tab5c68_0
+                           .Value()); // SMO typical sends 1 here which seems to be the default
+            ASSERT_MSG(instr.fmul.cc == 0, "FMUL cc is not implemented");
+
+            op_b = GetFloatOperandAbsNeg(op_b, false, instr.fmul.negate_b);
+
+            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFMul(t_float, op_a, op_b)), 1, 1,
+                               instr.alu.saturate_d, 0, true);
+            if (instr.generates_cc) {
+                LOG_CRITICAL(HW_GPU, "FMUL Generates an unhandled Control Code");
+                UNREACHABLE();
+            }
+            break;
+        }
+        case OpCode::Id::FADD_C:
+        case OpCode::Id::FADD_R:
+        case OpCode::Id::FADD_IMM: {
+            op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
+            op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
+
+            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFAdd(t_float, op_a, op_b)), 1, 1,
+                               instr.alu.saturate_d, 0, true);
+            if (instr.generates_cc) {
+                LOG_CRITICAL(HW_GPU, "FADD Generates an unhandled Control Code");
+                UNREACHABLE();
+            }
+            break;
+        }
         case OpCode::Id::MUFU: {
-            op_a = GetOperandFloatAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
+            op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             const Id result = [&]() {
                 switch (instr.sub_op) {
                 case SubOp::Rcp:
                     return Emit(OpFDiv(t_float, Constant(t_float, 1.f), op_a));
+                case SubOp::Rsq:
+                    return Emit(OpInverseSqrt(t_float, op_a));
                 case SubOp::Cos:
                 case SubOp::Sin:
                 case SubOp::Ex2:
                 case SubOp::Lg2:
-                case SubOp::Rsq:
                 case SubOp::Sqrt:
                 default:
                     LOG_CRITICAL(HW_GPU, "Unhandled MUFU sub op: {0:x}",
@@ -613,6 +657,24 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                 }
             }();
             SetRegisterToFloat(instr.gpr0, 0, result, 1, 1, instr.alu.saturate_d, 0, true);
+            break;
+        }
+        case OpCode::Id::FMNMX_C:
+        case OpCode::Id::FMNMX_R:
+        case OpCode::Id::FMNMX_IMM: {
+            op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
+            op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
+
+            const Id condition =
+                GetPredicateCondition(instr.alu.fmnmx.pred, instr.alu.fmnmx.negate_pred != 0);
+            const Id min = Emit(OpFMin(t_float, op_a, op_b));
+            const Id max = Emit(OpFMax(t_float, op_a, op_b));
+            const Id value = Emit(OpSelect(t_float, condition, min, max));
+            SetRegisterToFloat(instr.gpr0, 0, value, 1, 1, false, 0, true);
+            if (instr.generates_cc) {
+                LOG_CRITICAL(HW_GPU, "FMNMX Generates an unhandled Control Code");
+                UNREACHABLE();
+            }
             break;
         }
         default: {
@@ -628,6 +690,54 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetRegisterToFloat(instr.gpr0, 0, GetImmediate32(instr), 1, 1);
             break;
         }
+        }
+        break;
+    }
+    case OpCode::Type::Ffma: {
+        const Id op_a = GetRegisterAsFloat(instr.gpr8);
+        Id op_b;
+        //= instr.ffma.negate_b ? "-" : "";
+        Id op_c;
+        //= instr.ffma.negate_c ? "-" : "";
+
+        ASSERT_MSG(instr.ffma.cc == 0, "FFMA cc not implemented");
+        ASSERT_MSG(instr.ffma.tab5980_0 == 1, "FFMA tab5980_0({}) not implemented",
+                   instr.ffma.tab5980_0.Value()); // Seems to be 1 by default based on SMO
+        ASSERT_MSG(instr.ffma.tab5980_1 == 0, "FFMA tab5980_1({}) not implemented",
+                   instr.ffma.tab5980_1.Value());
+
+        switch (opcode->get().GetId()) {
+        case OpCode::Id::FFMA_CR: {
+            op_b = GetUniform(instr.cbuf34.index, instr.cbuf34.offset, t_float);
+            op_c = GetRegisterAsFloat(instr.gpr39);
+            break;
+        }
+        case OpCode::Id::FFMA_RR: {
+            op_b = GetRegisterAsFloat(instr.gpr20);
+            op_c = GetRegisterAsFloat(instr.gpr39);
+            break;
+        }
+        case OpCode::Id::FFMA_RC: {
+            op_b = GetRegisterAsFloat(instr.gpr39);
+            op_c = GetUniform(instr.cbuf34.index, instr.cbuf34.offset, t_float);
+            break;
+        }
+        case OpCode::Id::FFMA_IMM: {
+            op_b = GetImmediate19(instr);
+            op_c = GetRegisterAsFloat(instr.gpr39);
+            break;
+        }
+        default: {
+            LOG_CRITICAL(HW_GPU, "Unhandled FFMA instruction: {}", opcode->get().GetName());
+            UNREACHABLE();
+        }
+        }
+
+        SetRegisterToFloat(instr.gpr0, 0, Emit(OpFma(t_float, op_a, op_b, op_c)), 1, 1,
+                           instr.alu.saturate_d, 0, true);
+        if (instr.generates_cc) {
+            LOG_CRITICAL(HW_GPU, "FFMA Generates an unhandled Control Code");
+            UNREACHABLE();
         }
         break;
     }

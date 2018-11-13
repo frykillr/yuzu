@@ -237,7 +237,7 @@ private:
      * @returns SPIR-V id corresponding to the operand after being transformed by the abs() and
      * negation operations.
      */
-    Id GetOperandFloatAbsNeg(Id operand, bool abs, bool neg);
+    Id GetFloatOperandAbsNeg(Id operand, bool abs, bool neg);
 
     /// Writes the output values from a fragment shader to the corresponding SPIR-V output
     /// variables.

@@ -30,9 +30,9 @@ ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
     module.AddEntryPoint(spv::ExecutionModel::Vertex, main, "main", module.GetInterfaces());
 
     const auto code = module.Assemble();
-    /*FILE* out = fopen("D:\\vertex.spv", "wb");
+    FILE* out = fopen("D:\\vertex.spv", "wb");
     fwrite(code.data(), 1, code.size(), out);
-    fclose(out);*/
+    fclose(out);
     return {code, module.GetEntries()};
 }
 
@@ -53,9 +53,9 @@ ProgramResult GenerateFragmentShader(const ShaderSetup& setup) {
     module.AddEntryPoint(spv::ExecutionModel::Fragment, main, "main", module.GetInterfaces());
 
     const auto code = module.Assemble();
-    /*FILE* out = fopen("D:\\fragment.spv", "wb");
+    FILE* out = fopen("D:\\fragment.spv", "wb");
     fwrite(code.data(), 1, code.size(), out);
-    fclose(out);*/
+    fclose(out);
     return {code, module.GetEntries()};
 }
 
