@@ -124,7 +124,7 @@ vk::DescriptorSet CachedShader::CommitDescriptorSet(VulkanFence& fence) {
 
 void CachedShader::CreateDescriptorSetLayout() {
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
-    for (const auto& cbuf_entry : entries.const_buffer_entries) {
+    for (const auto& cbuf_entry : entries.const_buffers) {
         bindings.push_back({cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1,
                             MaxwellToVK::ShaderStage(program_type), nullptr});
     }
@@ -136,9 +136,13 @@ void CachedShader::CreateDescriptorSetLayout() {
 void CachedShader::CreateDescriptorPool() {
     std::vector<vk::DescriptorPoolSize> pool_sizes;
 
-    if (u32 used_ubos = static_cast<u32>(entries.const_buffer_entries.size()); used_ubos > 0) {
+    if (u32 used_ubos = static_cast<u32>(entries.const_buffers.size()); used_ubos > 0) {
         pool_sizes.push_back(
             vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, used_ubos * SETS_PER_POOL));
+    }
+    if (u32 used_attrs = static_cast<u32>(entries.attributes.size()); used_attrs > 0) {
+        pool_sizes.push_back(vk::DescriptorPoolSize(vk::DescriptorType::eInputAttachment,
+                                                    used_attrs * SETS_PER_POOL));
     }
 
     if (pool_sizes.size() == 0) {

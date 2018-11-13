@@ -206,11 +206,6 @@ Id SpirvModule::GetRegisterAsInteger(const Register& reg, u32 elem, bool is_sign
 Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
                                   const Tegra::Shader::IpaMode& input_mode,
                                   std::optional<Register> vertex) {
-    const auto BuildComposite = [&](Id x, Id y, Id z, Id w) {
-        std::vector<Id> ids = {x, y, z, w};
-        return Emit(OpCompositeConstruct(t_float4, ids));
-    };
-
     switch (attribute) {
     case Attribute::Index::TessCoordInstanceIDVertexID: {
         // TODO(Subv): Find out what the values are for the first two elements when inside a vertex
@@ -218,7 +213,7 @@ Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
         ASSERT(stage == ShaderStage::Vertex);
         const Id comp_z = Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, vs.instance_index))));
         const Id comp_w = Emit(OpBitcast(t_float, Emit(OpLoad(t_uint, vs.vertex_index))));
-        return BuildComposite(v_float_zero, v_float_zero, comp_z, comp_w);
+        return Emit(OpCompositeConstruct(t_float4, {v_float_zero, v_float_zero, comp_z, comp_w}));
     }
     case Attribute::Index::Position: {
         ASSERT_MSG(stage != ShaderStage::Vertex, "Position input in a vertex shader");

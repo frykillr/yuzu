@@ -58,6 +58,7 @@ private:
 
     void CreateDescriptorSetLayout();
     void CreateDescriptorPool();
+    void CreatePipelineInfo();
 
     const VAddr addr;
     const Maxwell::ShaderProgram program_type;
@@ -67,6 +68,7 @@ private:
     VKShader::ShaderEntries entries;
 
     vk::UniqueShaderModule shader_module;
+
     vk::UniqueDescriptorSetLayout descriptor_set_layout;
     std::unique_ptr<DescriptorPool> descriptor_pool;
 };

@@ -42,8 +42,14 @@ public:
         entries.descriptor_set = descriptor_set;
         for (const auto& const_buffer_entry : declr_const_buffers) {
             if (const_buffer_entry.IsUsed()) {
-                entries.const_buffer_entries.push_back(const_buffer_entry);
+                entries.const_buffers.push_back(const_buffer_entry);
             }
+        }
+        for (const auto& input_entry : declr_input_attribute) {
+            const auto attribute = input_entry.first;
+            const auto index{static_cast<u32>(attribute) -
+                             static_cast<u32>(Attribute::Index::Attribute_0)};
+            entries.attributes.insert(index);
         }
         return entries;
     }

@@ -89,7 +89,8 @@ private:
 
 struct ShaderEntries {
     u32 descriptor_set;
-    std::vector<ConstBufferEntry> const_buffer_entries;
+    std::vector<ConstBufferEntry> const_buffers;
+    std::set<u32> attributes;
 };
 
 struct ProgramResult {

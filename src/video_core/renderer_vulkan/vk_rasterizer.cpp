@@ -52,8 +52,35 @@ public:
         }
     }
 
+    void AddVertexAttribute(const vk::VertexInputAttributeDescription& attribute_description) {
+        const u32 index = vertex_attributes_count++;
+        ASSERT(index < static_cast<u32>(vertex_attributes.size()));
+        vertex_attributes[index] = attribute_description;
+    }
+
+    void AddVertexBinding(const vk::VertexInputBindingDescription binding_description,
+                          vk::Buffer buffer, vk::DeviceSize offset) {
+        const u32 index = vertex_bindings_count++;
+        ASSERT(index < static_cast<u32>(vertex_bindings.size()));
+        vertex_bindings[index] = binding_description;
+        vertex_buffers[index] = buffer;
+        vertex_offsets[index] = offset;
+    }
+
     void SetRenderPass(vk::RenderPass renderpass) {
         this->renderpass = renderpass;
+    }
+
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> GetWriteDescriptorSet() {
+        const u32 index = descriptor_bindings_count++;
+        ASSERT(index < static_cast<u32>(MAX_DESCRIPTOR_BINDINGS));
+
+        return {descriptor_bindings[index], buffer_infos[index]};
+    }
+
+    void UpdateDescriptorSets(vk::Device device) const {
+        device.updateDescriptorSets(descriptor_bindings_count, descriptor_bindings.data(), 0,
+                                    nullptr);
     }
 
     vk::Pipeline CreatePipeline(VulkanFence& fence, VulkanResourceManager& resource_manager) {
@@ -61,7 +88,9 @@ public:
                                                      nullptr);
         layout = resource_manager.CreatePipelineLayout(fence, layout_ci);
 
-        const vk::PipelineVertexInputStateCreateInfo vertex_input;
+        const vk::PipelineVertexInputStateCreateInfo vertex_input(
+            {}, vertex_bindings_count, vertex_bindings.data(), vertex_attributes_count,
+            vertex_attributes.data());
 
         const vk::PipelineInputAssemblyStateCreateInfo input_assembly({}, primitive_topology, {});
 
@@ -90,26 +119,31 @@ public:
         return resource_manager.CreateGraphicsPipeline(fence, create_info);
     }
 
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> GetWriteDescriptorSet() {
-        const u32 index = bindings_count++;
-        ASSERT(index < static_cast<u32>(MAX_BINDINGS));
-
-        return {bindings[index], buffer_infos[index]};
-    }
-
-    void UpdateDescriptorSets(vk::Device device) const {
-        device.updateDescriptorSets(bindings_count, bindings.data(), 0, nullptr);
-    }
-
     void BindDescriptors(vk::CommandBuffer cmdbuf) const {
         cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout, 0,
                                   descriptor_sets_count, descriptor_sets.data(), 0, nullptr);
     }
 
+    void BindVertexBuffers(vk::CommandBuffer cmdbuf) const {
+        // TODO(Rodrigo): Sort data and bindings to do this in a single call.
+        for (u32 index = 0; index < vertex_bindings_count; ++index) {
+            cmdbuf.bindVertexBuffers(index, {vertex_buffers[index]}, {vertex_offsets[index]});
+        }
+    }
+
 private:
-    static constexpr std::size_t MAX_BINDINGS = Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
+    static constexpr std::size_t MAX_DESCRIPTOR_BINDINGS =
+        Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
 
     vk::PrimitiveTopology primitive_topology{};
+
+    u32 vertex_attributes_count{};
+    std::array<vk::VertexInputAttributeDescription, Maxwell::NumVertexAttributes> vertex_attributes;
+
+    u32 vertex_bindings_count{};
+    std::array<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
+    std::array<vk::Buffer, Maxwell::NumVertexArrays> vertex_buffers;
+    std::array<vk::DeviceSize, Maxwell::NumVertexArrays> vertex_offsets;
 
     u32 stages_count{};
     std::array<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> stages;
@@ -118,9 +152,9 @@ private:
     u32 descriptor_sets_count{};
     std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets;
 
-    u32 bindings_count{};
-    std::array<vk::WriteDescriptorSet, MAX_BINDINGS> bindings;
-    std::array<vk::DescriptorBufferInfo, MAX_BINDINGS> buffer_infos;
+    u32 descriptor_bindings_count{};
+    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_BINDINGS> descriptor_bindings;
+    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BINDINGS> buffer_infos;
 
     vk::RenderPass renderpass{};
 
@@ -162,7 +196,8 @@ void RasterizerVulkan::DrawArrays() {
     state.SetPrimitiveTopology(primitive_topology);
     state.SetRenderPass(fb_info.renderpass);
 
-    std::size_t buffer_size = 0;
+    // Calculate buffer size.
+    std::size_t buffer_size = CalculateVertexArraysSize();
     buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
 
     buffer_cache->Reserve(buffer_size);
@@ -187,7 +222,8 @@ void RasterizerVulkan::DrawArrays() {
 
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
     state.BindDescriptors(cmdbuf);
-    cmdbuf.draw(3, 1, 0, 0);
+    state.BindVertexBuffers(cmdbuf);
+    cmdbuf.draw(4, 1, 0, 0);
 
     cmdbuf.endRenderPass();
 
@@ -349,11 +385,14 @@ void RasterizerVulkan::SetupShaders(VulkanFence& fence, PipelineState& state,
         Shader shader = shader_cache->GetStageProgram(program);
         const vk::DescriptorSet descriptor_set = shader->CommitDescriptorSet(fence);
 
-        const std::size_t stage{index == 0 ? 0 : index - 1}; // Stage indices are 0 - 5
-        const vk::ShaderStageFlagBits stage_bits = MaxwellToVK::ShaderStage(program);
+        // Stage indices are 0 - 5
+        const auto stage = static_cast<Maxwell::ShaderStage>(index == 0 ? 0 : index - 1);
+        if (stage == Maxwell::ShaderStage::Vertex) {
+            SetupVertexArrays(state, shader->GetEntries().attributes);
+        }
 
-        state.AddStage(stage_bits, shader->GetHandle(primitive_topology), shader->GetSetLayout(),
-                       descriptor_set);
+        state.AddStage(MaxwellToVK::ShaderStage(program), shader->GetHandle(primitive_topology),
+                       shader->GetSetLayout(), descriptor_set);
 
         SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
 
@@ -365,13 +404,55 @@ void RasterizerVulkan::SetupShaders(VulkanFence& fence, PipelineState& state,
     }
 }
 
+void RasterizerVulkan::SetupVertexArrays(PipelineState& state, const std::set<u32>& attributes) {
+    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
+    const auto& regs = gpu.regs;
+
+    for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexAttributes); ++index) {
+        const auto& attrib = regs.vertex_attrib_format[index];
+
+        // Ignore invalid attributes and the ones not used by the vertex shader.
+        if (!attrib.IsValid() || attributes.find(index) == attributes.end())
+            continue;
+
+        const auto& buffer = regs.vertex_array[attrib.buffer];
+        LOG_TRACE(HW_GPU, "vertex attrib {}, count={}, size={}, type={}, offset={}, normalize={}",
+                  index, attrib.ComponentCount(), attrib.SizeString(), attrib.TypeString(),
+                  attrib.offset.Value(), attrib.IsNormalized());
+
+        ASSERT(buffer.IsEnabled());
+
+        state.AddVertexAttribute(
+            {index, attrib.buffer, MaxwellToVK::VertexFormat(attrib), attrib.offset});
+    }
+
+    for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexArrays); ++index) {
+        const auto& vertex_array = regs.vertex_array[index];
+        if (!vertex_array.IsEnabled())
+            continue;
+
+        Tegra::GPUVAddr start = vertex_array.StartAddress();
+        const Tegra::GPUVAddr end = regs.vertex_array_limit[index].LimitAddress();
+
+        ASSERT(end > start);
+        const std::size_t size = end - start + 1;
+        const auto [offset, buffer] = buffer_cache->UploadMemory(start, size);
+
+        state.AddVertexBinding({index, vertex_array.stride, vk::VertexInputRate::eVertex}, buffer,
+                               offset);
+
+        ASSERT_MSG(!regs.instanced_arrays.IsInstancingEnabled(index), "Unimplemented");
+        ASSERT_MSG(vertex_array.divisor == 0, "Unimplemented");
+    }
+}
+
 void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
                                          Maxwell::ShaderStage stage,
                                          vk::DescriptorSet descriptor_set) {
     const auto& gpu = Core::System::GetInstance().GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
     const auto& shader_stage = maxwell3d.state.shader_stages[static_cast<std::size_t>(stage)];
-    const auto& entries = shader->GetEntries().const_buffer_entries;
+    const auto& entries = shader->GetEntries().const_buffers;
 
     for (const auto& used_buffer : entries) {
         const auto& buffer = shader_stage.const_buffers[used_buffer.GetIndex()];
@@ -407,6 +488,25 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
                                        vk::DescriptorType::eUniformBuffer, nullptr, &buffer_info,
                                        nullptr);
     }
+}
+
+std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    std::size_t size = 0;
+    for (u32 index = 0; index < Maxwell::NumVertexArrays; ++index) {
+        if (!regs.vertex_array[index].IsEnabled())
+            continue;
+        // This implementation assumes that all attributes are used.
+
+        const Tegra::GPUVAddr start = regs.vertex_array[index].StartAddress();
+        const Tegra::GPUVAddr end = regs.vertex_array_limit[index].LimitAddress();
+
+        ASSERT(end > start);
+        size += end - start + 1;
+    }
+
+    return size;
 }
 
 } // namespace Vulkan

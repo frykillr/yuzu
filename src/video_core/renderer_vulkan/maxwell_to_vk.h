@@ -44,4 +44,28 @@ inline vk::PrimitiveTopology PrimitiveTopology(Maxwell::PrimitiveTopology topolo
     return {};
 }
 
-} // namespace Vulkan::MaxwellToGL
+inline vk::Format VertexFormat(const Maxwell::VertexAttribute& attrib) {
+    switch (attrib.type) {
+    case Maxwell::VertexAttribute::Type::SignedNorm:
+    case Maxwell::VertexAttribute::Type::UnsignedNorm:
+    case Maxwell::VertexAttribute::Type::SignedInt:
+    case Maxwell::VertexAttribute::Type::UnsignedInt:
+    case Maxwell::VertexAttribute::Type::UnsignedScaled:
+    case Maxwell::VertexAttribute::Type::SignedScaled:
+        break;
+    case Maxwell::VertexAttribute::Type::Float:
+        switch (attrib.size) {
+        case Maxwell::VertexAttribute::Size::Size_32_32_32_32:
+            return vk::Format::eR32G32B32A32Sfloat;
+        case Maxwell::VertexAttribute::Size::Size_32_32:
+            return vk::Format::eR32G32Sfloat;
+        }
+        break;
+    }
+    LOG_CRITICAL(Render_Vulkan, "Unimplemented vertex format of type={} and size={}",
+                 static_cast<u32>(attrib.type.Value()), static_cast<u32>(attrib.size.Value()));
+    UNREACHABLE();
+    return vk::Format::eR8Unorm;
+}
+
+} // namespace Vulkan::MaxwellToVK
