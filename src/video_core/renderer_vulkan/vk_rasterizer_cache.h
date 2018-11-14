@@ -37,6 +37,12 @@ using Surface = std::shared_ptr<CachedSurface>;
 using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, MathUtil::Rectangle<u32>>;
 
 struct SurfaceParams {
+    /// Creates SurfaceParams for a depth buffer configuration
+    static SurfaceParams CreateForDepthBuffer(
+        u32 zeta_width, u32 zeta_height, Tegra::GPUVAddr zeta_address, Tegra::DepthFormat format,
+        u32 block_width, u32 block_height, u32 block_depth,
+        Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type);
+
     /// Creates SurfaceParams from a framebuffer configuration
     static SurfaceParams CreateForFramebuffer(std::size_t index);
 
@@ -173,6 +179,9 @@ public:
                                    VulkanResourceManager& resource_manager,
                                    VulkanMemoryManager& memory_manager);
     ~VulkanRasterizerCache();
+
+    /// Get the depth surface based on the framebuffer configuration
+    Surface GetDepthBufferSurface(bool preserve_contents);
 
     /// Get the color surface based on the framebuffer configuration and the specified render target
     Surface GetColorBufferSurface(std::size_t index, bool preserve_contents);

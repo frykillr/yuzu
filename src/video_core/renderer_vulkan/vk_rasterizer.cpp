@@ -30,6 +30,7 @@ struct FramebufferInfo {
     vk::RenderPass renderpass;
     vk::Framebuffer framebuffer;
     std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
+    Surface zeta_surface;
 };
 
 class PipelineState {
@@ -105,6 +106,9 @@ public:
         const vk::PipelineMultisampleStateCreateInfo multisampling(
             {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
 
+        const vk::PipelineDepthStencilStateCreateInfo depth_stencil(
+            {}, true, true, vk::CompareOp::eLess, false, false, {}, {}, 0.f, 0.f);
+
         const vk::PipelineColorBlendAttachmentState color_blend_attachment(
             false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
             vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
@@ -115,7 +119,8 @@ public:
 
         const vk::GraphicsPipelineCreateInfo create_info(
             {}, stages_count, stages.data(), &vertex_input, &input_assembly, {}, &viewport_state,
-            &rasterizer, &multisampling, nullptr, &color_blending, nullptr, layout, renderpass, 0);
+            &rasterizer, &multisampling, &depth_stencil, &color_blending, nullptr, layout,
+            renderpass, 0);
         return resource_manager.CreateGraphicsPipeline(fence, create_info);
     }
 
@@ -192,8 +197,9 @@ void RasterizerVulkan::DrawArrays() {
 
     VulkanFence& fence = sync.PrepareExecute(true);
 
-    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, true);
+    const FramebufferInfo fb_info = ConfigureFramebuffers(fence);
     const Surface& color_surface = fb_info.color_surfaces[0];
+    const Surface& zeta_surface = fb_info.zeta_surface;
 
     const vk::PrimitiveTopology primitive_topology =
         MaxwellToVK::PrimitiveTopology(regs.draw.topology);
@@ -244,20 +250,10 @@ void RasterizerVulkan::DrawArrays() {
 
 void RasterizerVulkan::Clear() {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
-    bool use_color{};
-    bool use_depth{};
-    bool use_stencil{};
-
-    if (regs.clear_buffers.R || regs.clear_buffers.G || regs.clear_buffers.B ||
-        regs.clear_buffers.A) {
-        use_color = true;
-    }
-    if (regs.clear_buffers.Z) {
-        //UNIMPLEMENTED_MSG("Depth clear");
-    }
-    if (regs.clear_buffers.S) {
-        UNIMPLEMENTED_MSG("Stencil clear");
-    }
+    const bool use_color = regs.clear_buffers.R || regs.clear_buffers.G || regs.clear_buffers.B ||
+                           regs.clear_buffers.A;
+    const bool use_depth = regs.clear_buffers.Z;
+    const bool use_stencil = regs.clear_buffers.S;
 
     if (!use_color && !use_depth && !use_stencil) {
         return;
@@ -267,24 +263,45 @@ void RasterizerVulkan::Clear() {
 
     VulkanFence& fence = sync.PrepareExecute(true);
 
-    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, false);
+    const FramebufferInfo fb_info =
+        ConfigureFramebuffers(fence, use_color, use_depth || use_stencil, false);
 
     const Surface& color_surface = fb_info.color_surfaces[0];
     const auto color_params = color_surface->GetSurfaceParams();
 
+    const Surface& zeta_surface = fb_info.zeta_surface;
+
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 
-    color_surface->Transition(cmdbuf, vk::ImageAspectFlagBits::eColor,
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                              vk::AccessFlagBits::eColorAttachmentWrite);
+    // TODO(Rodrigo): Do the transition in the attachment.
+    if (color_surface != nullptr) {
+        color_surface->Transition(cmdbuf, vk::ImageAspectFlagBits::eColor,
+                                  vk::ImageLayout::eColorAttachmentOptimal,
+                                  vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                  vk::AccessFlagBits::eColorAttachmentWrite);
+    }
+    if (zeta_surface != nullptr) {
+        zeta_surface->Transition(
+            cmdbuf, vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            vk::PipelineStageFlagBits::eAllGraphics,
+            vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+    }
 
-    const vk::ClearValue clear_color(std::array<float, 4>{
-        regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
+    std::array<vk::ClearValue, 2> clears;
+    u32 clears_count = 0;
+    if (color_surface != nullptr) {
+        clears[clears_count++] = vk::ClearValue(std::array<float, 4>{
+            regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
+    }
+    if (zeta_surface != nullptr) {
+        clears[clears_count++] =
+            vk::ClearValue({regs.clear_depth, static_cast<u32>(regs.clear_stencil)});
+    }
 
     const vk::RenderPassBeginInfo renderpass_bi(fb_info.renderpass, fb_info.framebuffer,
                                                 {{0, 0}, {color_params.width, color_params.height}},
-                                                1, &clear_color);
+                                                clears_count, clears.data());
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
     cmdbuf.endRenderPass();
 
@@ -330,52 +347,103 @@ bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
     return true;
 }
 
-FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
+FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence, bool using_color_fb,
+                                                        bool using_zeta_fb,
                                                         bool preserve_contents) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
-    Surface color_surface = res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), false);
-    ASSERT(color_surface);
-    const auto color_params = color_surface->GetSurfaceParams();
+    Surface color_surface, zeta_surface;
+    if (using_color_fb) {
+        color_surface =
+            res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), preserve_contents);
+    }
+    if (using_zeta_fb) {
+        zeta_surface = res_cache->GetDepthBufferSurface(preserve_contents);
+    }
 
     const vk::AttachmentLoadOp load_op =
         preserve_contents ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
-    const vk::AttachmentDescription color_attachment(
-        {}, color_surface->GetFormat(), vk::SampleCountFlagBits::e1, load_op,
-        vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
-        vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eColorAttachmentOptimal,
-        vk::ImageLayout::eColorAttachmentOptimal);
 
+    std::array<vk::AttachmentDescription, Maxwell::NumRenderTargets + 1> attachs;
+    u32 attachs_count = 0;
+
+    if (color_surface != nullptr) {
+        attachs[attachs_count++] = vk::AttachmentDescription(
+            {}, color_surface->GetFormat(), vk::SampleCountFlagBits::e1, load_op,
+            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
+            vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::eColorAttachmentOptimal);
+    }
+    if (zeta_surface != nullptr) {
+        attachs[attachs_count++] = vk::AttachmentDescription(
+            {}, zeta_surface->GetFormat(), vk::SampleCountFlagBits::e1, load_op,
+            vk::AttachmentStoreOp::eStore, load_op, vk::AttachmentStoreOp::eStore,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal);
+    }
     const vk::AttachmentReference color_attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
+    const vk::AttachmentReference zeta_attachment_ref(
+        1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
-    const vk::SubpassDescription subpass_description({}, vk::PipelineBindPoint::eGraphics, 0,
-                                                     nullptr, 1, &color_attachment_ref, nullptr,
-                                                     nullptr, 0, nullptr);
+    // TODO(Rodrigo): Support multiple color attachments
+    const vk::SubpassDescription subpass_description(
+        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, color_surface != nullptr ? 1 : 0,
+        &color_attachment_ref, nullptr, zeta_surface != nullptr ? &zeta_attachment_ref : nullptr, 0,
+        nullptr);
 
-    const vk::SubpassDependency subpass_dependency(
-        VK_SUBPASS_EXTERNAL, 0, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput, {},
-        vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite, {});
+    vk::AccessFlags access{};
+    vk::PipelineStageFlags stage{};
+    if (color_surface != nullptr) {
+        access |= vk::AccessFlagBits::eColorAttachmentRead;
+        access |= vk::AccessFlagBits::eColorAttachmentWrite;
+        stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    }
+    if (zeta_surface != nullptr) {
+        access |= vk::AccessFlagBits::eDepthStencilAttachmentRead;
+        access |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        // TODO(Rodrigo): Find out a valid stage.
+        stage |= vk::PipelineStageFlagBits::eAllCommands;
+    }
 
-    const vk::RenderPassCreateInfo renderpass_ci({}, 1, &color_attachment, 1, &subpass_description,
-                                                 1, &subpass_dependency);
+    const vk::SubpassDependency subpass_dependency(VK_SUBPASS_EXTERNAL, 0, stage, stage, {}, access,
+                                                   {});
+
+    const vk::RenderPassCreateInfo renderpass_ci({}, attachs_count, attachs.data(), 1,
+                                                 &subpass_description, 1, &subpass_dependency);
 
     const vk::RenderPass renderpass = resource_manager.CreateRenderPass(fence, renderpass_ci);
 
-    const vk::ImageViewCreateInfo image_view_ci = color_surface->GetImageViewCreateInfo(
-        {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-         vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-        {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-    const vk::ImageView image_view = resource_manager.CreateImageView(fence, image_view_ci);
+    std::array<vk::ImageView, Maxwell::NumRenderTargets + 1> views;
+    u32 views_count = 0;
 
-    const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, 1, &image_view,
-                                                   color_params.width, color_params.height, 1);
+    if (color_surface != nullptr) {
+        const vk::ImageViewCreateInfo image_view_ci = color_surface->GetImageViewCreateInfo(
+            {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+             vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
+            {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+        views[views_count++] = resource_manager.CreateImageView(fence, image_view_ci);
+    }
+    if (zeta_surface != nullptr) {
+        const vk::ImageViewCreateInfo image_view_ci = zeta_surface->GetImageViewCreateInfo(
+            {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+             vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
+            {vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil, 0, 1, 0, 1});
+        views[views_count++] = resource_manager.CreateImageView(fence, image_view_ci);
+    }
+
+    const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, views_count, views.data(), 1280,
+                                                   720, 1);
     const vk::Framebuffer framebuffer = resource_manager.CreateFramebuffer(fence, framebuffer_ci);
 
     FramebufferInfo info;
     info.renderpass = renderpass;
     info.framebuffer = framebuffer;
-    info.color_surfaces[0] = color_surface;
+    if (color_surface != nullptr) {
+        info.color_surfaces[0] = std::move(color_surface);
+    }
+    if (zeta_surface != nullptr) {
+        info.zeta_surface = std::move(zeta_surface);
+    }
     return info;
 }
 

@@ -55,7 +55,9 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
-    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, bool preserve_contents);
+    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, bool using_color_fb = true,
+                                          bool use_zeta_fb = true,
+                                          bool preserve_contents = true);
 
     void SetupShaders(VulkanFence& fence, PipelineState& state,
                       vk::PrimitiveTopology primitive_topology);

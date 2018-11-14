@@ -29,6 +29,7 @@ using VideoCore::Surface::SurfaceTargetFromTextureType;
 struct FormatTuple {
     vk::Format format;
     ComponentType component_type;
+    bool is_zeta;
 };
 
 static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex_format_tuples = {{
@@ -90,22 +91,31 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X8_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X5_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X4_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5
+    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5_SRGB
 
     // Depth formats
     {vk::Format::eUndefined, ComponentType::Invalid}, // Z32F
     {vk::Format::eUndefined, ComponentType::Invalid}, // Z16
 
     // DepthStencil formats
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z24S8
-    {vk::Format::eUndefined, ComponentType::Invalid}, // S8Z24
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z32FS8
+    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm}, // Z24S8
+    {vk::Format::eUndefined, ComponentType::Invalid},    // S8Z24
+    {vk::Format::eUndefined, ComponentType::Invalid},    // Z32FS8
 }};
 
 static const FormatTuple& GetFormatVK(PixelFormat pixel_format, ComponentType component_type) {
     ASSERT(static_cast<std::size_t>(pixel_format) < tex_format_tuples.size());
+
     const auto& format = tex_format_tuples[static_cast<u32>(pixel_format)];
-    ASSERT(format.format != vk::Format::eUndefined);
+    if (format.format == vk::Format::eUndefined) {
+        LOG_CRITICAL(Render_Vulkan,
+                     "Unimplemented texture format with pixel format={} and component type={}",
+                     static_cast<u32>(pixel_format), static_cast<u32>(component_type));
+        UNREACHABLE();
+    }
     ASSERT(component_type == format.component_type);
+
     return format;
 }
 
@@ -125,6 +135,34 @@ static vk::ImageViewType SurfaceTargetToImageViewVK(SurfaceTarget target) {
     }
     UNIMPLEMENTED_MSG("Unimplemented texture target={}", static_cast<u32>(target));
     return vk::ImageViewType::e2D;
+}
+
+/*static*/ SurfaceParams SurfaceParams::CreateForDepthBuffer(
+    u32 zeta_width, u32 zeta_height, Tegra::GPUVAddr zeta_address, Tegra::DepthFormat format,
+    u32 block_width, u32 block_height, u32 block_depth,
+    Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout type) {
+    SurfaceParams params{};
+
+    params.is_tiled = type == Tegra::Engines::Maxwell3D::Regs::InvMemoryLayout::BlockLinear;
+    params.block_width = 1 << std::min(block_width, 5U);
+    params.block_height = 1 << std::min(block_height, 5U);
+    params.block_depth = 1 << std::min(block_depth, 5U);
+    params.pixel_format = PixelFormatFromDepthFormat(format);
+    params.component_type = ComponentTypeFromDepthFormat(format);
+    params.type = GetFormatType(params.pixel_format);
+    // params.srgb_conversion = false;
+    params.width = zeta_width;
+    params.height = zeta_height;
+    params.unaligned_height = zeta_height;
+    params.target = SurfaceTarget::Texture2D;
+    params.depth = 1;
+    // params.max_mip_level = 1;
+    // params.is_layered = false;
+    // params.rt = {};
+
+    params.InitCacheParameters(zeta_address);
+
+    return params;
 }
 
 /*static*/ SurfaceParams SurfaceParams::CreateForFramebuffer(std::size_t index) {
@@ -182,9 +220,13 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
     constexpr u32 array_layers = 1;
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
-    // TODO(Rodrigo): Add depth attachment or color attachment depending on format
-    const auto usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled |
-                       vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc;
+
+    const bool is_zeta = pixel_format >= PixelFormat::FirstDepthStencilFormat &&
+                         pixel_format <= PixelFormat::MaxDepthStencilFormat;
+    const auto usage = (is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
+                                : vk::ImageUsageFlagBits::eColorAttachment) |
+                       vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
+                       vk::ImageUsageFlagBits::eTransferSrc;
     return {{},
             SurfaceTargetToImageVK(target),
             GetFormatVK(pixel_format, component_type).format,
@@ -267,15 +309,27 @@ VulkanRasterizerCache::VulkanRasterizerCache(VulkanDevice& device_handler,
 
 VulkanRasterizerCache::~VulkanRasterizerCache() = default;
 
+Surface VulkanRasterizerCache::GetDepthBufferSurface(bool preserve_contents) {
+    const auto& regs{Core::System::GetInstance().GPU().Maxwell3D().regs};
+    if (!regs.zeta.Address() || !regs.zeta_enable) {
+        return {};
+    }
+
+    SurfaceParams depth_params{SurfaceParams::CreateForDepthBuffer(
+        regs.zeta_width, regs.zeta_height, regs.zeta.Address(), regs.zeta.format,
+        regs.zeta.memory_layout.block_width, regs.zeta.memory_layout.block_height,
+        regs.zeta.memory_layout.block_depth, regs.zeta.memory_layout.type)};
+
+    return GetSurface(depth_params, preserve_contents);
+}
+
 Surface VulkanRasterizerCache::GetColorBufferSurface(std::size_t index, bool preserve_contents) {
     const auto& regs{Core::System::GetInstance().GPU().Maxwell3D().regs};
-
     ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
 
     if (index >= regs.rt_control.count) {
         return {};
     }
-
     if (regs.rt[index].Address() == 0 || regs.rt[index].format == Tegra::RenderTargetFormat::NONE) {
         return {};
     }

@@ -78,6 +78,7 @@ enum class PixelFormat {
     ASTC_2D_10X8_SRGB = 60,
 
     MaxColorFormat,
+    FirstDepthStencilFormat = MaxColorFormat + 1,
 
     // Depth formats
     Z32F = 61,
