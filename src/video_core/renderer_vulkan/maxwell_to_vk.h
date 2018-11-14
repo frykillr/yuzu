@@ -70,4 +70,37 @@ inline vk::Format VertexFormat(const Maxwell::VertexAttribute& attrib) {
     return vk::Format::eR8Unorm;
 }
 
+inline vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
+    switch (comparison) {
+    case Maxwell::ComparisonOp::Never:
+    case Maxwell::ComparisonOp::NeverOld:
+        return vk::CompareOp::eNever;
+    case Maxwell::ComparisonOp::Less:
+    case Maxwell::ComparisonOp::LessOld:
+        return vk::CompareOp::eLess;
+    case Maxwell::ComparisonOp::Equal:
+    case Maxwell::ComparisonOp::EqualOld:
+        return vk::CompareOp::eEqual;
+    case Maxwell::ComparisonOp::LessEqual:
+    case Maxwell::ComparisonOp::LessEqualOld:
+        return vk::CompareOp::eLessOrEqual;
+    case Maxwell::ComparisonOp::Greater:
+    case Maxwell::ComparisonOp::GreaterOld:
+        return vk::CompareOp::eGreater;
+    case Maxwell::ComparisonOp::NotEqual:
+    case Maxwell::ComparisonOp::NotEqualOld:
+        return vk::CompareOp::eNotEqual;
+    case Maxwell::ComparisonOp::GreaterEqual:
+    case Maxwell::ComparisonOp::GreaterEqualOld:
+        return vk::CompareOp::eGreaterOrEqual;
+    case Maxwell::ComparisonOp::Always:
+    case Maxwell::ComparisonOp::AlwaysOld:
+        return vk::CompareOp::eAlways;
+    }
+    LOG_CRITICAL(Render_Vulkan, "Unimplemented comparison op={}",
+                 static_cast<u32>(comparison));
+    UNREACHABLE();
+    return vk::CompareOp::eAlways;
+}
+
 } // namespace Vulkan::MaxwellToVK

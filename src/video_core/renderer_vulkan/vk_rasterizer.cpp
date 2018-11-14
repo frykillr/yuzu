@@ -36,8 +36,12 @@ struct FramebufferInfo {
 
 class PipelineState {
 public:
-    void SetPrimitiveTopology(vk::PrimitiveTopology primitive_topology) {
-        this->primitive_topology = primitive_topology;
+    void SetPrimitiveTopology(vk::PrimitiveTopology primitive_topology_) {
+        primitive_topology = primitive_topology_;
+    }
+
+    void SetDepthStencilState(const vk::PipelineDepthStencilStateCreateInfo& depth_stencil_) {
+        depth_stencil = depth_stencil_;
     }
 
     void AddStage(vk::ShaderStageFlagBits stage, vk::ShaderModule shader_module,
@@ -100,9 +104,6 @@ public:
         const vk::PipelineMultisampleStateCreateInfo multisampling(
             {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
 
-        const vk::PipelineDepthStencilStateCreateInfo depth_stencil(
-            {}, true, true, vk::CompareOp::eLess, false, false, {}, {}, 0.f, 0.f);
-
         const vk::PipelineColorBlendAttachmentState color_blend_attachment(
             false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
             vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
@@ -135,6 +136,8 @@ public:
 private:
     static constexpr std::size_t MAX_DESCRIPTOR_BINDINGS =
         Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
+
+    vk::PipelineDepthStencilStateCreateInfo depth_stencil;
 
     vk::PrimitiveTopology primitive_topology{};
 
@@ -199,6 +202,8 @@ void RasterizerVulkan::DrawArrays() {
         MaxwellToVK::PrimitiveTopology(regs.draw.topology);
 
     PipelineState state;
+    SyncDepthStencilState(state);
+
     state.SetPrimitiveTopology(primitive_topology);
     state.SetRenderPass(fb_info.renderpass);
 
@@ -574,8 +579,22 @@ std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
         ASSERT(end > start);
         size += end - start + 1;
     }
-
     return size;
+}
+
+void RasterizerVulkan::SyncDepthStencilState(PipelineState& state) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    // Stubs.
+    constexpr bool depth_bounds_enabled = false;
+    constexpr float depth_bounds_min = 0.f;
+    constexpr float depth_bounds_max = 0.f;
+    constexpr bool stencil_enabled = false;
+    const vk::StencilOpState stencil_op_state;
+
+    state.SetDepthStencilState({{}, regs.depth_test_enable == 1, regs.depth_write_enabled == 1,
+        MaxwellToVK::ComparisonOp(regs.depth_test_func), depth_bounds_enabled, stencil_enabled,
+        stencil_op_state, stencil_op_state, depth_bounds_min, depth_bounds_max});
 }
 
 } // namespace Vulkan

@@ -69,6 +69,8 @@ private:
 
     std::size_t CalculateVertexArraysSize() const;
 
+    void SyncDepthStencilState(PipelineState& state);
+
     Core::Frontend::EmuWindow& render_window;
     VulkanScreenInfo& screen_info;
     VulkanDevice& device_handler;
