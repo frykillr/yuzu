@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <tuple>
+#include <type_traits>
 #include "common/assert.h"
 
 /*
@@ -111,17 +112,33 @@ public:
     }
 
     /// Gets a pointer to the data of the first member.
-    auto* Data() {
+    auto* data() {
         return std::get<0>(arrays).data();
     }
 
     /// Gets a pointer to the data of the first member.
-    const auto* Data() const {
+    const auto* data() const {
         return std::get<0>(arrays).data();
     }
 
+    auto begin() const {
+        return std::get<0>(arrays).begin();
+    }
+
+    auto end() const {
+        return std::get<0>(arrays).begin() + count;
+    }
+
+    auto begin() {
+        return std::get<0>(arrays).begin();
+    }
+
+    auto end() {
+        return std::get<0>(arrays).begin() + count;
+    }
+
     /// Returns the capacity of the vector.
-    static constexpr std::size_t Capacity() {
+    static constexpr std::size_t capacity() {
         return N;
     }
 
@@ -135,5 +152,31 @@ private:
     }
 
     std::size_t count = 0;
-    std::tuple<std::array<Types, N>...> arrays;
+    std::tuple<std::array<Types, N>...> arrays{};
+
+    template <std::size_t N, typename... Types>
+    friend bool operator<(const StaticVector<N, Types...>& left,
+                          const StaticVector<N, Types...>& right);
+
+    template <std::size_t N, typename... Types>
+    friend bool operator==(const StaticVector<N, Types...>& left,
+                           const StaticVector<N, Types...>& right);
 };
+
+template <std::size_t N, typename... Types>
+[[nodiscard]] bool operator<(const StaticVector<N, Types...>& left,
+                             const StaticVector<N, Types...>& right) {
+    return left.arrays < right.arrays;
+}
+
+template <std::size_t N, typename... Types>
+[[nodiscard]] bool operator==(const StaticVector<N, Types...>& left,
+                              const StaticVector<N, Types...>& right) {
+    return left.count == right.count && left.arrays == right.arrays;
+}
+
+template <std::size_t N, typename... Types>
+[[nodiscard]] bool operator!=(const StaticVector<N, Types...>& left,
+                              const StaticVector<N, Types...>& right) {
+    return !(left == right);
+}

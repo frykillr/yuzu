@@ -27,10 +27,10 @@ class VulkanResourceManager;
 class VulkanMemoryManager;
 class VulkanMemoryCommit;
 
-using SurfaceTarget = VideoCore::Surface::SurfaceTarget;
-using SurfaceType = VideoCore::Surface::SurfaceType;
-using PixelFormat = VideoCore::Surface::PixelFormat;
-using ComponentType = VideoCore::Surface::ComponentType;
+using VideoCore::Surface::ComponentType;
+using VideoCore::Surface::PixelFormat;
+using VideoCore::Surface::SurfaceTarget;
+using VideoCore::Surface::SurfaceType;
 
 class CachedSurface;
 using Surface = std::shared_ptr<CachedSurface>;

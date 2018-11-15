@@ -6,101 +6,23 @@
 
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
-#include "common/logging/log.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/surface.h"
 
 namespace Vulkan::MaxwellToVK {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
+using PixelFormat = VideoCore::Surface::PixelFormat;
+using ComponentType = VideoCore::Surface::ComponentType;
 
-inline vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderProgram stage) {
-    switch (stage) {
-    case Maxwell::ShaderProgram::VertexA:
-    case Maxwell::ShaderProgram::VertexB:
-        return vk::ShaderStageFlagBits::eVertex;
-    case Maxwell::ShaderProgram::Fragment:
-        return vk::ShaderStageFlagBits::eFragment;
-    }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented shader stage={}", static_cast<u32>(stage));
-    UNREACHABLE();
-    return {};
-}
+vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type);
 
-inline vk::PrimitiveTopology PrimitiveTopology(Maxwell::PrimitiveTopology topology) {
-    switch (topology) {
-    case Maxwell::PrimitiveTopology::Points:
-        return vk::PrimitiveTopology::ePointList;
-    case Maxwell::PrimitiveTopology::Lines:
-        return vk::PrimitiveTopology::eLineList;
-    case Maxwell::PrimitiveTopology::LineStrip:
-        return vk::PrimitiveTopology::eLineStrip;
-    case Maxwell::PrimitiveTopology::Triangles:
-        return vk::PrimitiveTopology::eTriangleList;
-    case Maxwell::PrimitiveTopology::TriangleStrip:
-        return vk::PrimitiveTopology::eTriangleStrip;
-    }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented topology={}", static_cast<u32>(topology));
-    UNREACHABLE();
-    return {};
-}
+vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderStage stage);
 
-inline vk::Format VertexFormat(const Maxwell::VertexAttribute& attrib) {
-    switch (attrib.type) {
-    case Maxwell::VertexAttribute::Type::SignedNorm:
-    case Maxwell::VertexAttribute::Type::UnsignedNorm:
-    case Maxwell::VertexAttribute::Type::SignedInt:
-    case Maxwell::VertexAttribute::Type::UnsignedInt:
-    case Maxwell::VertexAttribute::Type::UnsignedScaled:
-    case Maxwell::VertexAttribute::Type::SignedScaled:
-        break;
-    case Maxwell::VertexAttribute::Type::Float:
-        switch (attrib.size) {
-        case Maxwell::VertexAttribute::Size::Size_32_32_32_32:
-            return vk::Format::eR32G32B32A32Sfloat;
-        case Maxwell::VertexAttribute::Size::Size_32_32_32:
-            return vk::Format::eR32G32B32Sfloat;
-        case Maxwell::VertexAttribute::Size::Size_32_32:
-            return vk::Format::eR32G32Sfloat;
-        }
-        break;
-    }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented vertex format of type={} and size={}",
-                 static_cast<u32>(attrib.type.Value()), static_cast<u32>(attrib.size.Value()));
-    UNREACHABLE();
-    return vk::Format::eR8Unorm;
-}
+vk::PrimitiveTopology PrimitiveTopology(Maxwell::PrimitiveTopology topology);
 
-inline vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
-    switch (comparison) {
-    case Maxwell::ComparisonOp::Never:
-    case Maxwell::ComparisonOp::NeverOld:
-        return vk::CompareOp::eNever;
-    case Maxwell::ComparisonOp::Less:
-    case Maxwell::ComparisonOp::LessOld:
-        return vk::CompareOp::eLess;
-    case Maxwell::ComparisonOp::Equal:
-    case Maxwell::ComparisonOp::EqualOld:
-        return vk::CompareOp::eEqual;
-    case Maxwell::ComparisonOp::LessEqual:
-    case Maxwell::ComparisonOp::LessEqualOld:
-        return vk::CompareOp::eLessOrEqual;
-    case Maxwell::ComparisonOp::Greater:
-    case Maxwell::ComparisonOp::GreaterOld:
-        return vk::CompareOp::eGreater;
-    case Maxwell::ComparisonOp::NotEqual:
-    case Maxwell::ComparisonOp::NotEqualOld:
-        return vk::CompareOp::eNotEqual;
-    case Maxwell::ComparisonOp::GreaterEqual:
-    case Maxwell::ComparisonOp::GreaterEqualOld:
-        return vk::CompareOp::eGreaterOrEqual;
-    case Maxwell::ComparisonOp::Always:
-    case Maxwell::ComparisonOp::AlwaysOld:
-        return vk::CompareOp::eAlways;
-    }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented comparison op={}",
-                 static_cast<u32>(comparison));
-    UNREACHABLE();
-    return vk::CompareOp::eAlways;
-}
+vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttribute::Size size);
+
+vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison);
 
 } // namespace Vulkan::MaxwellToVK

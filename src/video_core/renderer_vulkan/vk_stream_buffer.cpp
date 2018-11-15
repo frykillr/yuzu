@@ -11,8 +11,6 @@
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 constexpr u64 RESOURCE_RESERVE = 0x4000;

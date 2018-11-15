@@ -70,6 +70,7 @@ add_library(video_core STATIC
 
 if (Vulkan_FOUND)
     target_sources(video_core PRIVATE
+        renderer_vulkan/maxwell_to_vk.cpp
         renderer_vulkan/maxwell_to_vk.h
         renderer_vulkan/renderer_vulkan.cpp
         renderer_vulkan/renderer_vulkan.h
@@ -79,6 +80,8 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_buffer_cache.h
         renderer_vulkan/vk_device.cpp
         renderer_vulkan/vk_device.h
+        renderer_vulkan/vk_pipeline_cache.cpp
+        renderer_vulkan/vk_pipeline_cache.h
         renderer_vulkan/vk_rasterizer.cpp
         renderer_vulkan/vk_rasterizer.h
         renderer_vulkan/vk_rasterizer_cache.cpp

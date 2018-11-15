@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <vulkan/vulkan.hpp>
+#include "common/static_vector.h"
 #include "core/core.h"
 #include "core/memory.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
@@ -24,9 +25,19 @@ static constexpr std::size_t SETS_PER_POOL = 0x400;
 /// Gets the address for the specified shader stage program
 static VAddr GetShaderAddress(Maxwell::ShaderProgram program) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
+
     const auto& shader_config = gpu.regs.shader_config[static_cast<std::size_t>(program)];
     return *gpu.memory_manager.GpuToCpuAddress(gpu.regs.code_address.CodeAddress() +
                                                shader_config.offset);
+}
+
+static std::size_t GetStageFromProgram(std::size_t program) {
+    return program == 0 ? 0 : program - 1;
+}
+
+static Maxwell::ShaderStage GetStageFromProgram(Maxwell::ShaderProgram program) {
+    return static_cast<Maxwell::ShaderStage>(
+        GetStageFromProgram(static_cast<std::size_t>(program)));
 }
 
 /// Gets the shader program code from memory for the specified address
@@ -126,7 +137,7 @@ void CachedShader::CreateDescriptorSetLayout() {
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
     for (const auto& cbuf_entry : entries.const_buffers) {
         bindings.push_back({cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1,
-                            MaxwellToVK::ShaderStage(program_type), nullptr});
+                            MaxwellToVK::ShaderStage(GetStageFromProgram(program_type)), nullptr});
     }
 
     descriptor_set_layout = device.createDescriptorSetLayoutUnique(
@@ -154,21 +165,223 @@ void CachedShader::CreateDescriptorPool() {
 }
 
 VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)
-    : device_handler(device_handler) {}
+    : device_handler(device_handler), device(device_handler.GetLogical()) {}
 
-Shader VulkanShaderCache::GetStageProgram(Maxwell::ShaderProgram program) {
-    const VAddr program_addr{GetShaderAddress(program)};
+Pipeline VulkanShaderCache::GetPipeline(const PipelineParams& params) {
+    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
 
-    // Look up shader in the cache based on address
-    Shader shader{TryGet(program_addr)};
+    Pipeline pipeline;
+    ShaderPipeline shaders{};
 
-    if (!shader) {
-        // No shader found - create a new one
-        shader = std::make_shared<CachedShader>(device_handler, program_addr, program);
-        Register(shader);
+    for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
+        const auto& shader_config = gpu.regs.shader_config[index];
+        const auto program{static_cast<Maxwell::ShaderProgram>(index)};
+
+        // Skip stages that are not enabled
+        if (!gpu.regs.IsShaderConfigEnabled(index)) {
+            continue;
+        }
+
+        const VAddr program_addr{GetShaderAddress(program)};
+        shaders[index] = program_addr;
+
+        // Look up shader in the cache based on address
+        Shader shader{TryGet(program_addr)};
+
+        if (!shader) {
+            // No shader found - create a new one
+            shader = std::make_shared<CachedShader>(device_handler, program_addr, program);
+            Register(shader);
+        }
+
+        const std::size_t stage = index == 0 ? 0 : index - 1;
+        pipeline.shaders[stage] = std::move(shader);
+
+        // When VertexA is enabled, we have dual vertex shaders
+        if (program == Maxwell::ShaderProgram::VertexA) {
+            // VertexB was combined with VertexA, so we skip the VertexB iteration
+            index++;
+        }
     }
 
-    return shader;
+    const auto [pair, is_cache_miss] = cache.try_emplace({shaders, params});
+    auto& entry = pair->second;
+
+    if (is_cache_miss) {
+        entry = std::make_unique<CacheEntry>();
+        entry->renderpass = CreateRenderPass(params);
+        pipeline.renderpass = *entry->renderpass;
+
+        entry->layout = CreatePipelineLayout(params, pipeline);
+        pipeline.layout = *entry->layout;
+
+        entry->pipeline = CreatePipeline(params, pipeline);
+    }
+
+    pipeline.handle = *entry->pipeline;
+    pipeline.layout = *entry->layout;
+    pipeline.renderpass = *entry->renderpass;
+    return pipeline;
+}
+
+void VulkanShaderCache::ObjectInvalidated(const Shader& shader) {
+    const VAddr invalidated_addr = shader->GetAddr();
+    for (auto it = cache.begin(); it != cache.end();) {
+        auto& entry = it->first;
+        const bool has_addr = [&]() {
+            const auto [shaders, params] = entry;
+            for (auto& shader_addr : shaders) {
+                if (shader_addr == invalidated_addr) {
+                    return true;
+                }
+            }
+            return false;
+        }();
+        if (has_addr) {
+            it = cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+vk::UniquePipelineLayout VulkanShaderCache::CreatePipelineLayout(const PipelineParams& params,
+                                                                 const Pipeline& pipeline) const {
+    StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSetLayout> set_layouts;
+    for (auto& shader : pipeline.shaders) {
+        if (shader != nullptr) {
+            set_layouts.Push(shader->GetDescriptorSetLayout());
+        }
+    }
+
+    return device.createPipelineLayoutUnique(
+        {{}, static_cast<u32>(set_layouts.Size()), set_layouts.data(), 0, nullptr});
+}
+
+vk::UniquePipeline VulkanShaderCache::CreatePipeline(const PipelineParams& params,
+                                                     const Pipeline& pipeline) const {
+    const auto& vertex_input = params.vertex_input;
+    const auto& input_assembly = params.input_assembly;
+    const auto& depth_stencil = params.depth_stencil;
+
+    StaticVector<Maxwell::NumVertexArrays, vk::VertexInputBindingDescription> vertex_bindings;
+    for (const auto& binding : params.vertex_input.bindings) {
+        ASSERT(binding.divisor == 0);
+        vertex_bindings.Push(vk::VertexInputBindingDescription(binding.index, binding.stride));
+    }
+
+    StaticVector<Maxwell::NumVertexArrays, vk::VertexInputAttributeDescription> vertex_attributes;
+    for (const auto& attribute : params.vertex_input.attributes) {
+        vertex_attributes.Push(vk::VertexInputAttributeDescription(
+            attribute.index, attribute.buffer,
+            MaxwellToVK::VertexFormat(attribute.type, attribute.size), attribute.offset));
+    }
+
+    const vk::PipelineVertexInputStateCreateInfo vertex_input_ci(
+        {}, static_cast<u32>(vertex_bindings.Size()), vertex_bindings.data(),
+        static_cast<u32>(vertex_attributes.Size()), vertex_attributes.data());
+
+    const vk::PrimitiveTopology primitive_topology =
+        MaxwellToVK::PrimitiveTopology(input_assembly.topology);
+    const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci(
+        {}, primitive_topology, input_assembly.primitive_restart_enable);
+
+    const vk::Viewport viewport(0.f, 0.f, 1280.f, 720.f, 0.f, 1.f);
+    const vk::Rect2D scissor({0, 0}, {1280, 720});
+    const vk::PipelineViewportStateCreateInfo viewport_state_ci({}, 1, &viewport, 1, &scissor);
+
+    const vk::PipelineRasterizationStateCreateInfo rasterizer_ci(
+        {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone,
+        vk::FrontFace::eCounterClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f);
+
+    const vk::PipelineMultisampleStateCreateInfo multisampling_ci(
+        {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
+
+    const vk::PipelineDepthStencilStateCreateInfo depth_stencil_ci(
+        {}, depth_stencil.depth_test_enable, depth_stencil.depth_write_enable,
+        MaxwellToVK::ComparisonOp(depth_stencil.depth_test_function), 0, false, {}, {}, 0.f, 0.f);
+
+    const vk::PipelineColorBlendAttachmentState color_blend_attachment(
+        false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
+        vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
+        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+    const vk::PipelineColorBlendStateCreateInfo color_blending_ci(
+        {}, false, vk::LogicOp::eCopy, 1, &color_blend_attachment, {0.f, 0.f, 0.f, 0.f});
+
+    StaticVector<Maxwell::MaxShaderStage, vk::PipelineShaderStageCreateInfo> shader_stages;
+    for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+        const auto& shader = pipeline.shaders[stage];
+        if (shader == nullptr)
+            continue;
+
+        shader_stages.Push(vk::PipelineShaderStageCreateInfo(
+            {}, MaxwellToVK::ShaderStage(static_cast<Maxwell::ShaderStage>(stage)),
+            shader->GetHandle(primitive_topology), "main", nullptr));
+    }
+
+    const vk::GraphicsPipelineCreateInfo create_info(
+        {}, static_cast<u32>(shader_stages.Size()), shader_stages.data(), &vertex_input_ci,
+        &input_assembly_ci, nullptr, &viewport_state_ci, &rasterizer_ci, &multisampling_ci,
+        &depth_stencil_ci, &color_blending_ci, nullptr, pipeline.layout, pipeline.renderpass, 0);
+    return device.createGraphicsPipelineUnique(nullptr, create_info);
+}
+
+vk::UniqueRenderPass VulkanShaderCache::CreateRenderPass(const PipelineParams& params) const {
+    const auto& p = params.renderpass;
+    const bool preserve_contents = p.preserve_contents;
+    ASSERT(p.color_map.Size() == 1);
+
+    const vk::AttachmentLoadOp load_op =
+        preserve_contents ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
+
+    StaticVector<Maxwell::NumRenderTargets + 1, vk::AttachmentDescription> descrs;
+    const auto& first_map = p.color_map.data()[0];
+
+    descrs.Push(vk::AttachmentDescription(
+        {}, MaxwellToVK::SurfaceFormat(first_map.pixel_format, first_map.component_type),
+        vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
+        vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
+        vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal));
+
+    if (p.has_zeta) {
+        descrs.Push(vk::AttachmentDescription(
+            {}, MaxwellToVK::SurfaceFormat(p.zeta_pixel_format, p.zeta_component_type),
+            vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore, load_op,
+            vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal));
+    }
+
+    // TODO(Rodrigo): Support multiple attachments
+    const vk::AttachmentReference color_attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
+    const vk::AttachmentReference zeta_attachment_ref(
+        1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+    const vk::SubpassDescription subpass_description(
+        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, 1, &color_attachment_ref, nullptr,
+        p.has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
+
+    vk::AccessFlags access{};
+    vk::PipelineStageFlags stage{};
+    if (preserve_contents)
+        access |= vk::AccessFlagBits::eColorAttachmentRead;
+    access |= vk::AccessFlagBits::eColorAttachmentWrite;
+    stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+    if (p.has_zeta) {
+        if (preserve_contents)
+            access |= vk::AccessFlagBits::eDepthStencilAttachmentRead;
+        access |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        stage |= vk::PipelineStageFlagBits::eLateFragmentTests;
+    }
+
+    const vk::SubpassDependency subpass_dependency(VK_SUBPASS_EXTERNAL, 0, stage, stage, {}, access,
+                                                   {});
+
+    const vk::RenderPassCreateInfo create_info({}, static_cast<u32>(descrs.Size()), descrs.data(),
+                                               1, &subpass_description, 1, &subpass_dependency);
+
+    return device.createRenderPassUnique(create_info);
 }
 
 } // namespace Vulkan

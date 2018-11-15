@@ -28,7 +28,6 @@ namespace Vulkan {
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 struct FramebufferInfo {
-    vk::RenderPass renderpass;
     vk::Framebuffer framebuffer;
     std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
     Surface zeta_surface;
@@ -36,36 +35,14 @@ struct FramebufferInfo {
 
 class PipelineState {
 public:
-    void SetPrimitiveTopology(vk::PrimitiveTopology primitive_topology_) {
-        primitive_topology = primitive_topology_;
-    }
-
-    void SetDepthStencilState(const vk::PipelineDepthStencilStateCreateInfo& depth_stencil_) {
-        depth_stencil = depth_stencil_;
-    }
-
-    void AddStage(vk::ShaderStageFlagBits stage, vk::ShaderModule shader_module,
-                  vk::DescriptorSetLayout set_layout, vk::DescriptorSet descriptor_set) {
-
-        stages.Push({{}, stage, shader_module, "main", nullptr}, set_layout);
-
+    void AddDescriptorSet(vk::DescriptorSet descriptor_set) {
         // A null descriptor set means that the stage is not using descriptors, it must be skipped.
         if (descriptor_set) {
             descriptor_sets.Push(descriptor_set);
         }
     }
-
-    void AddVertexAttribute(const vk::VertexInputAttributeDescription& description) {
-        vertex_attributes.Push(description);
-    }
-
-    void AddVertexBinding(const vk::VertexInputBindingDescription description, vk::Buffer buffer,
-                          vk::DeviceSize offset) {
-        vertex_bindings.Push(description, buffer, offset);
-    }
-
-    void SetRenderPass(vk::RenderPass renderpass) {
-        this->renderpass = renderpass;
+    void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
+        vertex_bindings.Push(buffer, offset);
     }
 
     std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> GetWriteDescriptorSet() {
@@ -80,48 +57,9 @@ public:
                                     nullptr);
     }
 
-    vk::Pipeline CreatePipeline(VulkanFence& fence, VulkanResourceManager& resource_manager) {
-        const vk::PipelineLayoutCreateInfo layout_ci({}, static_cast<u32>(stages.Size()),
-                                                     stages.Data<vk::DescriptorSetLayout>(), 0,
-                                                     nullptr);
-        layout = resource_manager.CreatePipelineLayout(fence, layout_ci);
-
-        const vk::PipelineVertexInputStateCreateInfo vertex_input(
-            {}, static_cast<u32>(vertex_bindings.Size()),
-            vertex_bindings.Data<vk::VertexInputBindingDescription>(),
-            static_cast<u32>(vertex_attributes.Size()), vertex_attributes.Data());
-
-        const vk::PipelineInputAssemblyStateCreateInfo input_assembly({}, primitive_topology, {});
-
-        const vk::Viewport viewport(0.f, 0.f, 1280.f, 720.f, 0.f, 1.f);
-        const vk::Rect2D scissor({0, 0}, {1280, 720});
-        const vk::PipelineViewportStateCreateInfo viewport_state({}, 1, &viewport, 1, &scissor);
-
-        const vk::PipelineRasterizationStateCreateInfo rasterizer(
-            {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone,
-            vk::FrontFace::eCounterClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f);
-
-        const vk::PipelineMultisampleStateCreateInfo multisampling(
-            {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
-
-        const vk::PipelineColorBlendAttachmentState color_blend_attachment(
-            false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
-            vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
-            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-        const vk::PipelineColorBlendStateCreateInfo color_blending(
-            {}, false, vk::LogicOp::eCopy, 1, &color_blend_attachment, {0.0f, 0.0f, 0.0f, 0.0f});
-
-        const vk::GraphicsPipelineCreateInfo create_info(
-            {}, static_cast<u32>(stages.Size()), stages.Data<vk::PipelineShaderStageCreateInfo>(),
-            &vertex_input, &input_assembly, {}, &viewport_state, &rasterizer, &multisampling,
-            &depth_stencil, &color_blending, nullptr, layout, renderpass, 0);
-        return resource_manager.CreateGraphicsPipeline(fence, create_info);
-    }
-
-    void BindDescriptors(vk::CommandBuffer cmdbuf) const {
+    void BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout) const {
         cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout, 0,
-                                  static_cast<u32>(descriptor_sets.Size()), descriptor_sets.Data(),
+                                  static_cast<u32>(descriptor_sets.Size()), descriptor_sets.data(),
                                   0, nullptr);
     }
 
@@ -137,30 +75,13 @@ private:
     static constexpr std::size_t MAX_DESCRIPTOR_BINDINGS =
         Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
 
-    vk::PipelineDepthStencilStateCreateInfo depth_stencil;
-
-    vk::PrimitiveTopology primitive_topology{};
-
-    StaticVector<Maxwell::NumVertexAttributes, vk::VertexInputAttributeDescription>
-        vertex_attributes;
-
-    StaticVector<Maxwell::NumVertexArrays, vk::VertexInputBindingDescription, vk::Buffer,
-                 vk::DeviceSize>
-        vertex_bindings;
-
-    StaticVector<Maxwell::MaxShaderStage, vk::PipelineShaderStageCreateInfo,
-                 vk::DescriptorSetLayout>
-        stages;
+    StaticVector<Maxwell::NumVertexArrays, vk::Buffer, vk::DeviceSize> vertex_bindings;
 
     StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSet> descriptor_sets;
 
     u32 descriptor_bindings_count{};
     std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_BINDINGS> descriptor_bindings;
     std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BINDINGS> buffer_infos;
-
-    vk::RenderPass renderpass{};
-
-    vk::PipelineLayout layout{};
 };
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
@@ -193,19 +114,31 @@ void RasterizerVulkan::DrawArrays() {
     ASSERT_MSG(!is_indexed, "Unimplemented");
 
     VulkanFence& fence = sync.PrepareExecute(true);
-
-    const FramebufferInfo fb_info = ConfigureFramebuffers(fence);
-    const Surface& color_surface = fb_info.color_surfaces[0];
-    const Surface& zeta_surface = fb_info.zeta_surface;
-
-    const vk::PrimitiveTopology primitive_topology =
-        MaxwellToVK::PrimitiveTopology(regs.draw.topology);
-
+    PipelineParams params;
     PipelineState state;
-    SyncDepthStencilState(state);
 
-    state.SetPrimitiveTopology(primitive_topology);
-    state.SetRenderPass(fb_info.renderpass);
+    SyncDepthStencilState(params);
+
+    // TODO(Rodrigo): Function this
+    params.input_assembly.topology = regs.draw.topology;
+
+    // TODO(Rodrigo): Function this
+    params.renderpass.preserve_contents = true;
+    if (params.renderpass.has_zeta = regs.zeta_enable) {
+        params.renderpass.zeta_component_type =
+            VideoCore::Surface::ComponentTypeFromDepthFormat(regs.zeta.format);
+        params.renderpass.zeta_pixel_format =
+            VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
+    }
+    {
+        PipelineParams::ColorAttachment attachment;
+        attachment.index = 0;
+        attachment.pixel_format =
+            VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
+        attachment.component_type =
+            VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
+        params.renderpass.color_map.Push(attachment);
+    }
 
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
@@ -213,26 +146,50 @@ void RasterizerVulkan::DrawArrays() {
 
     buffer_cache->Reserve(buffer_size);
 
-    SetupShaders(fence, state, primitive_topology);
+    SetupVertexArrays(params, state);
+
+    Pipeline pipeline = shader_cache->GetPipeline(params);
+
+    for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
+        const Shader& shader = pipeline.shaders[stage];
+        if (shader == nullptr)
+            continue;
+
+        const auto descriptor_set = shader->CommitDescriptorSet(fence);
+        SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
+        state.AddDescriptorSet(descriptor_set);
+    }
+
+    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, pipeline.renderpass);
+    const Surface& color_surface = fb_info.color_surfaces[0];
+    const Surface& zeta_surface = fb_info.zeta_surface;
 
     buffer_cache->Send(sync, fence);
 
-    const vk::Pipeline pipeline = state.CreatePipeline(fence, resource_manager);
     state.UpdateDescriptorSets(device);
 
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 
-    color_surface->Transition(cmdbuf, vk::ImageAspectFlagBits::eColor,
-                              vk::ImageLayout::eColorAttachmentOptimal,
-                              vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                              vk::AccessFlagBits::eColorAttachmentWrite);
+    color_surface->Transition(
+        cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eColorAttachmentOptimal,
+        vk::PipelineStageFlagBits::eColorAttachmentOutput,
+        vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite);
 
-    const vk::RenderPassBeginInfo renderpass_bi(fb_info.renderpass, fb_info.framebuffer,
+    if (zeta_surface != nullptr) {
+        zeta_surface->Transition(
+            cmdbuf, vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            vk::PipelineStageFlagBits::eLateFragmentTests,
+            vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+    }
+
+    const vk::RenderPassBeginInfo renderpass_bi(pipeline.renderpass, fb_info.framebuffer,
                                                 {{0, 0}, {1280, 720}}, 0, nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
     {
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-        state.BindDescriptors(cmdbuf);
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle);
+        state.BindDescriptors(cmdbuf, pipeline.layout);
         state.BindVertexBuffers(cmdbuf);
 
         // TODO(Rodrigo): Implement indexed vertex buffers.
@@ -261,46 +218,38 @@ void RasterizerVulkan::Clear() {
     ASSERT_MSG(use_color, "Unimplemented");
 
     VulkanFence& fence = sync.PrepareExecute(true);
-
-    const FramebufferInfo fb_info =
-        ConfigureFramebuffers(fence, use_color, use_depth || use_stencil, false);
-
-    const Surface& color_surface = fb_info.color_surfaces[0];
-    const auto color_params = color_surface->GetSurfaceParams();
-
-    const Surface& zeta_surface = fb_info.zeta_surface;
-
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 
-    // TODO(Rodrigo): Do the transition in the attachment.
-    if (color_surface != nullptr) {
-        color_surface->Transition(cmdbuf, vk::ImageAspectFlagBits::eColor,
-                                  vk::ImageLayout::eColorAttachmentOptimal,
-                                  vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                  vk::AccessFlagBits::eColorAttachmentWrite);
-    }
-    if (zeta_surface != nullptr) {
-        zeta_surface->Transition(
-            cmdbuf, vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal,
-            vk::PipelineStageFlagBits::eAllGraphics,
-            vk::AccessFlagBits::eDepthStencilAttachmentWrite);
-    }
+    if (use_color) {
+        Surface color_surface =
+            res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), false);
 
-    StaticVector<2, vk::ClearValue> clears;
-    if (color_surface != nullptr) {
-        clears.Push(vk::ClearValue(std::array<float, 4>{regs.clear_color[0], regs.clear_color[1],
-                                                        regs.clear_color[2], regs.clear_color[3]}));
-    }
-    if (zeta_surface != nullptr) {
-        clears.Push(vk::ClearValue({regs.clear_depth, static_cast<u32>(regs.clear_stencil)}));
-    }
+        color_surface->Transition(
+            cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
+            vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
-    const vk::RenderPassBeginInfo renderpass_bi(fb_info.renderpass, fb_info.framebuffer,
-                                                {{0, 0}, {color_params.width, color_params.height}},
-                                                static_cast<u32>(clears.Size()), clears.Data());
-    cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
-    cmdbuf.endRenderPass();
+        const vk::ClearColorValue clear(std::array<float, 4>{
+            regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
+        cmdbuf.clearColorImage(
+            color_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
+            {vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)});
+    }
+    if (use_depth || use_stencil) {
+        Surface zeta_surface = res_cache->GetDepthBufferSurface(false);
+
+        // TODO(Rodrigo): Dehardcode this.
+        const vk::ImageAspectFlags aspect =
+            vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+        zeta_surface->Transition(cmdbuf, aspect, vk::ImageLayout::eTransferDstOptimal,
+                                 vk::PipelineStageFlagBits::eTransfer,
+                                 vk::AccessFlagBits::eTransferWrite);
+
+        const vk::ClearDepthStencilValue clear(regs.clear_depth,
+                                               static_cast<u32>(regs.clear_stencil));
+        cmdbuf.clearDepthStencilImage(zeta_surface->GetHandle(),
+                                      vk::ImageLayout::eTransferDstOptimal, clear,
+                                      {vk::ImageSubresourceRange(aspect, 0, 1, 0, 1)});
+    }
 
     sync.EndRecord(cmdbuf);
     sync.Execute();
@@ -344,73 +293,22 @@ bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
     return true;
 }
 
-FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence, bool using_color_fb,
-                                                        bool using_zeta_fb,
+FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
+                                                        vk::RenderPass renderpass,
+                                                        bool using_color_fb, bool using_zeta_fb,
                                                         bool preserve_contents) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
     Surface color_surface, zeta_surface;
     if (using_color_fb) {
-        color_surface =
-            res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), preserve_contents);
+        color_surface = res_cache->GetColorBufferSurface(0, preserve_contents);
     }
     if (using_zeta_fb) {
         zeta_surface = res_cache->GetDepthBufferSurface(preserve_contents);
     }
 
-    const vk::AttachmentLoadOp load_op =
-        preserve_contents ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
-
-    StaticVector<Maxwell::NumRenderTargets + 1, vk::AttachmentDescription> attachs;
-
-    if (color_surface != nullptr) {
-        attachs.Push(vk::AttachmentDescription(
-            {}, color_surface->GetFormat(), vk::SampleCountFlagBits::e1, load_op,
-            vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
-            vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::ImageLayout::eColorAttachmentOptimal));
-    }
-    if (zeta_surface != nullptr) {
-        attachs.Push(vk::AttachmentDescription(
-            {}, zeta_surface->GetFormat(), vk::SampleCountFlagBits::e1, load_op,
-            vk::AttachmentStoreOp::eStore, load_op, vk::AttachmentStoreOp::eStore,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal));
-    }
-    const vk::AttachmentReference color_attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
-    const vk::AttachmentReference zeta_attachment_ref(
-        1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
-
-    // TODO(Rodrigo): Support multiple color attachments
-    const vk::SubpassDescription subpass_description(
-        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, color_surface != nullptr ? 1 : 0,
-        &color_attachment_ref, nullptr, zeta_surface != nullptr ? &zeta_attachment_ref : nullptr, 0,
-        nullptr);
-
-    vk::AccessFlags access{};
-    vk::PipelineStageFlags stage{};
-    if (color_surface != nullptr) {
-        access |= vk::AccessFlagBits::eColorAttachmentRead;
-        access |= vk::AccessFlagBits::eColorAttachmentWrite;
-        stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
-    }
-    if (zeta_surface != nullptr) {
-        access |= vk::AccessFlagBits::eDepthStencilAttachmentRead;
-        access |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
-        // TODO(Rodrigo): Find out a valid stage.
-        stage |= vk::PipelineStageFlagBits::eAllCommands;
-    }
-
-    const vk::SubpassDependency subpass_dependency(VK_SUBPASS_EXTERNAL, 0, stage, stage, {}, access,
-                                                   {});
-
-    const vk::RenderPassCreateInfo renderpass_ci({}, static_cast<u32>(attachs.Size()),
-                                                 attachs.Data(), 1, &subpass_description, 1,
-                                                 &subpass_dependency);
-
-    const vk::RenderPass renderpass = resource_manager.CreateRenderPass(fence, renderpass_ci);
-
     StaticVector<Maxwell::NumRenderTargets + 1, vk::ImageView> views;
+
     if (color_surface != nullptr) {
         const vk::ImageViewCreateInfo image_view_ci = color_surface->GetImageViewCreateInfo(
             {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
@@ -428,11 +326,10 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence, bool
     }
 
     const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, static_cast<u32>(views.Size()),
-                                                   views.Data(), 1280, 720, 1);
+                                                   views.data(), 1280, 720, 1);
     const vk::Framebuffer framebuffer = resource_manager.CreateFramebuffer(fence, framebuffer_ci);
 
     FramebufferInfo info;
-    info.renderpass = renderpass;
     info.framebuffer = framebuffer;
     if (color_surface != nullptr) {
         info.color_surfaces[0] = std::move(color_surface);
@@ -443,50 +340,15 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence, bool
     return info;
 }
 
-void RasterizerVulkan::SetupShaders(VulkanFence& fence, PipelineState& state,
-                                    vk::PrimitiveTopology primitive_topology) {
-    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
-
-    for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
-        const auto& shader_config = gpu.regs.shader_config[index];
-        const auto program{static_cast<Maxwell::ShaderProgram>(index)};
-
-        // Skip stages that are not enabled
-        if (!gpu.regs.IsShaderConfigEnabled(index)) {
-            continue;
-        }
-
-        Shader shader = shader_cache->GetStageProgram(program);
-        const vk::DescriptorSet descriptor_set = shader->CommitDescriptorSet(fence);
-
-        // Stage indices are 0 - 5
-        const auto stage = static_cast<Maxwell::ShaderStage>(index == 0 ? 0 : index - 1);
-        if (stage == Maxwell::ShaderStage::Vertex) {
-            SetupVertexArrays(state, shader->GetEntries().attributes);
-        }
-
-        state.AddStage(MaxwellToVK::ShaderStage(program), shader->GetHandle(primitive_topology),
-                       shader->GetSetLayout(), descriptor_set);
-
-        SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
-
-        // When VertexA is enabled, we have dual vertex shaders
-        if (program == Maxwell::ShaderProgram::VertexA) {
-            // VertexB was combined with VertexA, so we skip the VertexB iteration
-            index++;
-        }
-    }
-}
-
-void RasterizerVulkan::SetupVertexArrays(PipelineState& state, const std::set<u32>& attributes) {
+void RasterizerVulkan::SetupVertexArrays(PipelineParams& params, PipelineState& state) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
     const auto& regs = gpu.regs;
 
     for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexAttributes); ++index) {
         const auto& attrib = regs.vertex_attrib_format[index];
 
-        // Ignore invalid attributes and the ones not used by the vertex shader.
-        if (!attrib.IsValid() || attributes.find(index) == attributes.end())
+        // Ignore invalid attributes.
+        if (!attrib.IsValid())
             continue;
 
         const auto& buffer = regs.vertex_array[attrib.buffer];
@@ -496,8 +358,13 @@ void RasterizerVulkan::SetupVertexArrays(PipelineState& state, const std::set<u3
 
         ASSERT(buffer.IsEnabled());
 
-        state.AddVertexAttribute(
-            {index, attrib.buffer, MaxwellToVK::VertexFormat(attrib), attrib.offset});
+        PipelineParams::VertexAttribute attribute;
+        attribute.index = index;
+        attribute.buffer = attrib.buffer;
+        attribute.type = attrib.type;
+        attribute.size = attrib.size;
+        attribute.offset = attrib.offset;
+        params.vertex_input.attributes.Push(attribute);
     }
 
     for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexArrays); ++index) {
@@ -512,11 +379,13 @@ void RasterizerVulkan::SetupVertexArrays(PipelineState& state, const std::set<u3
         const std::size_t size = end - start + 1;
         const auto [offset, buffer] = buffer_cache->UploadMemory(start, size);
 
-        state.AddVertexBinding({index, vertex_array.stride, vk::VertexInputRate::eVertex}, buffer,
-                               offset);
+        PipelineParams::VertexBinding binding;
+        binding.index = index;
+        binding.stride = vertex_array.stride;
+        binding.divisor = vertex_array.divisor;
+        params.vertex_input.bindings.Push(binding);
 
-        ASSERT_MSG(!regs.instanced_arrays.IsInstancingEnabled(index), "Unimplemented");
-        ASSERT_MSG(vertex_array.divisor == 0, "Unimplemented");
+        state.AddVertexBinding(buffer, offset);
     }
 }
 
@@ -547,8 +416,8 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
             size = used_buffer.GetSize() * sizeof(float);
         }
 
-        // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL std140
-        // UBO alignment requirements.
+        // Align the actual size so it ends up being a multiple of vec4 to meet the OpenGL
+        // std140 UBO alignment requirements.
         size = Common::AlignUp(size, 4 * sizeof(float));
         ASSERT_MSG(size <= MaxConstbufferSize, "Constbuffer too big");
 
@@ -582,19 +451,19 @@ std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
     return size;
 }
 
-void RasterizerVulkan::SyncDepthStencilState(PipelineState& state) {
+void RasterizerVulkan::SyncDepthStencilState(PipelineParams& params) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
-    // Stubs.
-    constexpr bool depth_bounds_enabled = false;
-    constexpr float depth_bounds_min = 0.f;
-    constexpr float depth_bounds_max = 0.f;
-    constexpr bool stencil_enabled = false;
-    const vk::StencilOpState stencil_op_state;
-
-    state.SetDepthStencilState({{}, regs.depth_test_enable == 1, regs.depth_write_enabled == 1,
-        MaxwellToVK::ComparisonOp(regs.depth_test_func), depth_bounds_enabled, stencil_enabled,
-        stencil_op_state, stencil_op_state, depth_bounds_min, depth_bounds_max});
+    auto& ds = params.depth_stencil;
+    ds.depth_test_enable = regs.depth_test_enable == 1;
+    ds.depth_write_enable = regs.depth_write_enabled == 1;
+    ds.depth_test_function = regs.depth_test_func;
+    ds.depth_bounds_enable = false;
+    ds.stencil_enable = false;
+    // ds.front_stencil = ;
+    // ds.back_stencil = ;
+    ds.depth_bounds_min = 0.f;
+    ds.depth_bounds_max = 0.f;
 }
 
 } // namespace Vulkan

@@ -55,21 +55,18 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
-    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, bool using_color_fb = true,
-                                          bool use_zeta_fb = true,
+    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, vk::RenderPass renderpass,
+                                          bool using_color_fb = true, bool use_zeta_fb = true,
                                           bool preserve_contents = true);
 
-    void SetupShaders(VulkanFence& fence, PipelineState& state,
-                      vk::PrimitiveTopology primitive_topology);
-
-    void SetupVertexArrays(PipelineState& state, const std::set<u32>& attributes);
+    void SetupVertexArrays(PipelineParams& params, PipelineState& state);
 
     void SetupConstBuffers(PipelineState& state, Shader shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
 
     std::size_t CalculateVertexArraysSize() const;
 
-    void SyncDepthStencilState(PipelineState& state);
+    void SyncDepthStencilState(PipelineParams& params);
 
     Core::Frontend::EmuWindow& render_window;
     VulkanScreenInfo& screen_info;

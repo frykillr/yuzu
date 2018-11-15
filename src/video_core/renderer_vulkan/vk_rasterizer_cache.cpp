@@ -8,6 +8,7 @@
 #include "core/core.h"
 #include "core/memory.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
@@ -25,99 +26,6 @@ using VideoCore::Surface::PixelFormatFromDepthFormat;
 using VideoCore::Surface::PixelFormatFromRenderTargetFormat;
 using VideoCore::Surface::PixelFormatFromTextureFormat;
 using VideoCore::Surface::SurfaceTargetFromTextureType;
-
-struct FormatTuple {
-    vk::Format format;
-    ComponentType component_type;
-    bool is_zeta;
-};
-
-static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex_format_tuples = {{
-    {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm}, // ABGR8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // B5G6R5U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // A2B10G10R10U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // A1B5G5R5U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R8UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R11FG11FB10F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT1
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT23
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT45
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN1
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN2UNORM
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN2SNORM
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC7U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC6H_UF16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC6H_SF16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_4X4
-    {vk::Format::eUndefined, ComponentType::Invalid},         // G8R8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // G8R8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BGRA8
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16I
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16I
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGB32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X8
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X5
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_5X4
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BGRA8
-    // Compressed sRGB formats
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT1_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT23_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT45_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // BC7U_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_4X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X5_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5_SRGB
-
-    // Depth formats
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z32F
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z16
-
-    // DepthStencil formats
-    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm}, // Z24S8
-    {vk::Format::eUndefined, ComponentType::Invalid},    // S8Z24
-    {vk::Format::eUndefined, ComponentType::Invalid},    // Z32FS8
-}};
-
-static const FormatTuple& GetFormatVK(PixelFormat pixel_format, ComponentType component_type) {
-    ASSERT(static_cast<std::size_t>(pixel_format) < tex_format_tuples.size());
-
-    const auto& format = tex_format_tuples[static_cast<u32>(pixel_format)];
-    if (format.format == vk::Format::eUndefined) {
-        LOG_CRITICAL(Render_Vulkan,
-                     "Unimplemented texture format with pixel format={} and component type={}",
-                     static_cast<u32>(pixel_format), static_cast<u32>(component_type));
-        UNREACHABLE();
-    }
-    ASSERT(component_type == format.component_type);
-
-    return format;
-}
 
 static vk::ImageType SurfaceTargetToImageVK(SurfaceTarget target) {
     switch (target) {
@@ -229,7 +137,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
                        vk::ImageUsageFlagBits::eTransferSrc;
     return {{},
             SurfaceTargetToImageVK(target),
-            GetFormatVK(pixel_format, component_type).format,
+            MaxwellToVK::SurfaceFormat(pixel_format, component_type),
             {width, height, depth},
             mipmaps,
             array_layers,
@@ -269,7 +177,7 @@ CachedSurface::CachedSurface(VulkanDevice& device_handler, VulkanResourceManager
         cached_size_in_bytes = max_size;
     }
 
-    format = GetFormatVK(params.pixel_format, params.component_type).format;
+    format = MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type);
 }
 
 CachedSurface::~CachedSurface() {
@@ -284,7 +192,7 @@ vk::ImageViewCreateInfo CachedSurface::GetImageViewCreateInfo(
     return {{},
             image,
             SurfaceTargetToImageViewVK(params.target),
-            GetFormatVK(params.pixel_format, params.component_type).format,
+            MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type),
             component_mapping,
             subresource_range};
 }
