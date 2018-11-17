@@ -100,9 +100,14 @@ public:
                            VulkanMemoryManager& memory_manager, const SurfaceParams& params);
     ~CachedSurface();
 
-    vk::ImageViewCreateInfo GetImageViewCreateInfo(
-        const vk::ComponentMapping& component_mapping,
-        const vk::ImageSubresourceRange& subresource_range) const;
+    vk::ImageView GetImageView();
+
+    // Read/Write data in Switch memory to/from vk_buffer
+    void LoadVKBuffer();
+    void FlushVKBuffer();
+
+    // Upload data in gl_buffer to this surface's texture
+    void UploadVKTexture();
 
     VAddr GetAddr() const override {
         return params.addr;
@@ -121,15 +126,8 @@ public:
     }
 
     vk::Format GetFormat() const {
-        return format;
+        return vk_format;
     }
-
-    // Read/Write data in Switch memory to/from vk_buffer
-    void LoadVKBuffer();
-    void FlushVKBuffer();
-
-    // Upload data in gl_buffer to this surface's texture
-    void UploadVKTexture();
 
 private:
     const vk::Device device;
@@ -145,9 +143,11 @@ private:
     const VulkanMemoryCommit* buffer_commit{};
     u8* vk_buffer{};
 
+    vk::UniqueImageView image_view;
+
     std::size_t cached_size_in_bytes;
 
-    vk::Format format;
+    vk::Format vk_format;
 };
 
 } // namespace Vulkan

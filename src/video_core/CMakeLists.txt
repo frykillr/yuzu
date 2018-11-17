@@ -80,8 +80,6 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_buffer_cache.h
         renderer_vulkan/vk_device.cpp
         renderer_vulkan/vk_device.h
-        renderer_vulkan/vk_pipeline_cache.cpp
-        renderer_vulkan/vk_pipeline_cache.h
         renderer_vulkan/vk_rasterizer.cpp
         renderer_vulkan/vk_rasterizer.h
         renderer_vulkan/vk_rasterizer_cache.cpp

@@ -22,8 +22,8 @@ constexpr u32 SEMAPHORES_COUNT = 0x1000;
 constexpr u32 FENCES_COUNT = 0x2000;
 constexpr u32 FENCES_GROW_STEP = 0x1000;
 
-constexpr u32 TICKS_TO_DESTROY = 0x10;
-constexpr std::size_t OBJECTS_TO_DESTROY = 0x10;
+constexpr u32 TICKS_TO_DESTROY = 0x1000;
+constexpr std::size_t OBJECTS_TO_DESTROY = 0x1000;
 
 using namespace Resource;
 

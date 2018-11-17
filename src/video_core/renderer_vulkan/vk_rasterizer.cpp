@@ -310,19 +310,10 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
     StaticVector<Maxwell::NumRenderTargets + 1, vk::ImageView> views;
 
     if (color_surface != nullptr) {
-        const vk::ImageViewCreateInfo image_view_ci = color_surface->GetImageViewCreateInfo(
-            {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-             vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-            {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-        views.Push(resource_manager.CreateImageView(fence, image_view_ci));
+        views.Push(color_surface->GetImageView());
     }
     if (zeta_surface != nullptr) {
-        // TODO(Rodrigo): Dehardcode eDepth and eStencil
-        const vk::ImageViewCreateInfo image_view_ci = zeta_surface->GetImageViewCreateInfo(
-            {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-             vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-            {vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil, 0, 1, 0, 1});
-        views.Push(resource_manager.CreateImageView(fence, image_view_ci));
+        views.Push(zeta_surface->GetImageView());
     }
 
     const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, static_cast<u32>(views.Size()),

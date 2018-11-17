@@ -177,7 +177,7 @@ CachedSurface::CachedSurface(VulkanDevice& device_handler, VulkanResourceManager
         cached_size_in_bytes = max_size;
     }
 
-    format = MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type);
+    vk_format = MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type);
 }
 
 CachedSurface::~CachedSurface() {
@@ -185,16 +185,32 @@ CachedSurface::~CachedSurface() {
     memory_manager.Free(buffer_commit);
 }
 
-vk::ImageViewCreateInfo CachedSurface::GetImageViewCreateInfo(
-    const vk::ComponentMapping& component_mapping,
-    const vk::ImageSubresourceRange& subresource_range) const {
+vk::ImageView CachedSurface::GetImageView() {
+    if (image_view) {
+        return *image_view;
+    }
 
-    return {{},
-            image,
-            SurfaceTargetToImageViewVK(params.target),
-            MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type),
-            component_mapping,
-            subresource_range};
+    const auto access = [&]() -> vk::ImageAspectFlags {
+        if (params.pixel_format <= PixelFormat::MaxColorFormat) {
+            return vk::ImageAspectFlagBits::eColor;
+        } else if (params.pixel_format <= PixelFormat::MaxDepthFormat) {
+            return vk::ImageAspectFlagBits::eDepth;
+        } else if (params.pixel_format <= PixelFormat::MaxDepthStencilFormat) {
+            return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+        } else {
+            UNREACHABLE_MSG("Invalid pixel format={}", static_cast<u32>(params.pixel_format));
+            return vk::ImageAspectFlagBits::eColor;
+        }
+    }();
+
+    const vk::ImageViewCreateInfo image_view_ci(
+        {}, image, SurfaceTargetToImageViewVK(params.target),
+        MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type),
+        {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
+         vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
+        {access, 0, 1, 0, 1});
+    image_view = device.createImageViewUnique(image_view_ci);
+    return *image_view;
 }
 
 void CachedSurface::LoadVKBuffer() {
