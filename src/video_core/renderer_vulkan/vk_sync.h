@@ -4,10 +4,14 @@
 
 #pragma once
 
-#include <memory>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
+#include "common/threadsafe_queue.h"
 
 namespace Vulkan {
 
@@ -21,7 +25,7 @@ public:
                         const VulkanDevice& device_handler);
     ~VulkanSync();
 
-    VulkanFence& PrepareExecute(bool take_fence_ownership = true);
+    VulkanFence& BeginPass(bool take_fence_ownership = true);
 
     void AddDependency(vk::CommandBuffer cmdbuf, vk::Semaphore semaphore,
                        vk::PipelineStageFlags pipeline_stage);
@@ -30,7 +34,9 @@ public:
 
     void EndRecord(vk::CommandBuffer cmdbuf);
 
-    void Execute();
+    void EndPass();
+
+    void Flush();
 
     vk::Semaphore QuerySemaphore();
 
@@ -39,27 +45,34 @@ private:
         VulkanFence* fence;
         vk::Semaphore semaphore;
         std::vector<vk::CommandBuffer> commands;
+        std::vector<vk::CommandBuffer> cmdbufs;
+        std::vector<vk::Semaphore> signal_semaphores;
+        std::vector<vk::Semaphore> wait_semaphores;
+        std::vector<vk::PipelineStageFlags> pipeline_stages;
+        std::vector<vk::SubmitInfo> submit_infos;
+        bool take_fence_ownership;
     };
-
-    void ClearSubmitData();
 
     VulkanResourceManager& resource_manager;
     const vk::Device device;
     const vk::Queue queue;
 
-    std::vector<std::unique_ptr<Call>> calls;
-    std::unique_ptr<Call> current_call;
-    bool take_fence_ownership{};
+    std::unique_ptr<Call> pass;
+    std::vector<std::unique_ptr<Call>> scheduled_passes;
 
-    std::vector<vk::SubmitInfo> submit_infos;
-    std::vector<vk::CommandBuffer> dep_cmdbufs;
-    std::vector<vk::Semaphore> dep_signal_semaphores;
-    std::vector<vk::Semaphore> dep_wait_semaphores;
-    std::vector<vk::PipelineStageFlags> dep_pipeline_stages;
+    VulkanFence* next_fence = nullptr;
+    vk::Semaphore previous_semaphore = nullptr;
 
-    vk::Semaphore previous_semaphore{};
+    std::atomic_bool executing = true;
+    std::thread worker_thread;
+    std::mutex schedule_mutex;
+    std::condition_variable work_signal;
 
-    bool recording_submit{};
+    std::atomic_bool work_done = false;
+    std::mutex flush_mutex;
+    std::condition_variable flush_signal;
+
+    bool recording_submit = false;
 };
 
 } // namespace Vulkan

@@ -98,7 +98,7 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
         std::make_unique<VulkanRasterizerCache>(device_handler, resource_manager, memory_manager);
     shader_cache = std::make_unique<VulkanShaderCache>(device_handler);
     buffer_cache = std::make_unique<VulkanBufferCache>(resource_manager, device_handler,
-                                                       memory_manager, STREAM_BUFFER_SIZE);
+                                                       memory_manager, sync, STREAM_BUFFER_SIZE);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
@@ -113,7 +113,7 @@ void RasterizerVulkan::DrawArrays() {
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
     ASSERT_MSG(!is_indexed, "Unimplemented");
 
-    VulkanFence& fence = sync.PrepareExecute(true);
+    VulkanFence& fence = sync.BeginPass(true);
     PipelineParams params;
     PipelineState state;
 
@@ -164,11 +164,11 @@ void RasterizerVulkan::DrawArrays() {
     const Surface& color_surface = fb_info.color_surfaces[0];
     const Surface& zeta_surface = fb_info.zeta_surface;
 
-    buffer_cache->Send(sync, fence);
-
     state.UpdateDescriptorSets(device);
 
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
+
+    buffer_cache->Send(fence, cmdbuf);
 
     color_surface->Transition(
         cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eColorAttachmentOptimal,
@@ -201,7 +201,7 @@ void RasterizerVulkan::DrawArrays() {
     cmdbuf.endRenderPass();
 
     sync.EndRecord(cmdbuf);
-    sync.Execute();
+    sync.EndPass();
 }
 
 void RasterizerVulkan::Clear() {
@@ -217,7 +217,7 @@ void RasterizerVulkan::Clear() {
 
     ASSERT_MSG(use_color, "Unimplemented");
 
-    VulkanFence& fence = sync.PrepareExecute(true);
+    VulkanFence& fence = sync.BeginPass(true);
     const vk::CommandBuffer cmdbuf = sync.BeginRecord();
 
     if (use_color) {
@@ -252,7 +252,7 @@ void RasterizerVulkan::Clear() {
     }
 
     sync.EndRecord(cmdbuf);
-    sync.Execute();
+    sync.EndPass();
 }
 
 void RasterizerVulkan::FlushAll() {}

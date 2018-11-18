@@ -15,8 +15,6 @@
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 // How many sets are created per descriptor pool.

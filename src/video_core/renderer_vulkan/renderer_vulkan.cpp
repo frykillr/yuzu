@@ -52,6 +52,8 @@ void RendererVulkan::SwapBuffers(
         swapchain->AcquireNextImage(*present_semaphore);
         VulkanFence& fence = blit_screen->Draw(*rasterizer, *sync, *framebuffer);
 
+        sync->Flush();
+
         const vk::Semaphore render_semaphore = sync->QuerySemaphore();
         swapchain->Present(*present_semaphore, render_semaphore, fence);
 

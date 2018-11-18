@@ -11,16 +11,14 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune these numbers.
 constexpr u32 COMMAND_BUFFERS_COUNT = 0x1000;
 constexpr u32 SEMAPHORES_COUNT = 0x1000;
 
-constexpr u32 FENCES_COUNT = 0x2000;
-constexpr u32 FENCES_GROW_STEP = 0x1000;
+constexpr u32 FENCES_COUNT = 0x4;
+constexpr u32 FENCES_GROW_STEP = 0x4;
 
 constexpr u32 TICKS_TO_DESTROY = 0x1000;
 constexpr std::size_t OBJECTS_TO_DESTROY = 0x1000;
@@ -108,7 +106,12 @@ VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device)
 
 VulkanFence::~VulkanFence() = default;
 
+std::unique_lock<std::mutex> VulkanFence::Acquire() {
+    return std::unique_lock(mutex);
+}
+
 void VulkanFence::Wait() {
+    std::unique_lock lock(mutex);
     device.waitForFences({*handle}, true, WaitTimeout);
 }
 
@@ -342,12 +345,20 @@ VulkanResourceManager::~VulkanResourceManager() {
 
 VulkanFence& VulkanResourceManager::CommitFence() {
     const auto StepFences = [&](bool gpu_wait, bool owner_wait) -> VulkanFence* {
-        const auto it = std::find_if(fences.begin(), fences.end(), [=](auto& fence) {
-            return fence->Tick(gpu_wait, owner_wait);
-        });
+        const auto Tick = [=](auto& fence) { return fence->Tick(gpu_wait, owner_wait); };
+        const auto hinted = fences.begin() + fences_iterator;
+
+        auto it = std::find_if(hinted, fences.end(), Tick);
         if (it == fences.end()) {
-            return nullptr;
+            it = std::find_if(fences.begin(), hinted, Tick);
+            if (it == hinted) {
+                return nullptr;
+            }
         }
+        fences_iterator = std::distance(fences.begin(), it) + 1;
+        if (fences_iterator >= fences.size())
+            fences_iterator = 0;
+
         auto& fence = *it;
         fence->Commit();
         return fence.get();

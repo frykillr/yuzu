@@ -203,7 +203,7 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     RefreshResources(framebuffer);
 
     const u32 image_index = swapchain.GetImageIndex();
-    VulkanFence& fence = sync.PrepareExecute(false);
+    VulkanFence& fence = sync.BeginPass(false);
     watches[image_index]->Watch(fence);
 
     VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
@@ -269,7 +269,7 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     cmdbuf.endRenderPass();
 
     sync.EndRecord(cmdbuf);
-    sync.Execute();
+    sync.EndPass();
 
     return fence;
 }

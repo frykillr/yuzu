@@ -31,12 +31,11 @@ public:
         }
 
         fence = &new_fence;
-        is_signaled = false;
         fence->Protect(this);
     }
 
     void Wait() {
-        if (!is_signaled) {
+        if (fence) {
             fence->Wait();
         }
     }
@@ -44,7 +43,7 @@ public:
 protected:
     virtual void OnFenceRemoval(VulkanFence* signaling_fence) {
         ASSERT(signaling_fence == fence);
-        is_signaled = true;
+        fence = nullptr;
     }
 
 private:
@@ -54,10 +53,11 @@ private:
 
 VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                        VulkanDevice& device_handler,
-                                       VulkanMemoryManager& memory_manager, u64 size,
-                                       vk::BufferUsageFlags usage)
+                                       VulkanMemoryManager& memory_manager, VulkanSync& sync,
+                                       u64 size, vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      memory_manager(memory_manager), /*has_device_memory(!memory_manager.IsMemoryUnified()),*/
+      graphics_family(device_handler.GetGraphicsFamily()), memory_manager(memory_manager),
+      sync(sync), /*has_device_memory(!memory_manager.IsMemoryUnified()),*/
       has_device_memory(true), buffer_size(size) {
 
     CreateBuffers(memory_manager, usage);
@@ -76,6 +76,7 @@ std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, boo
     bool invalidate = false;
     if (buffer_pos + size > buffer_size) {
         // TODO(Rodrigo): Find a better way to invalidate than waiting for all resources to finish.
+        sync.Flush();
         std::for_each(resources.begin(), resources.begin() + used_resources,
                       [&](const auto& resource) { resource->Wait(); });
         used_resources = 0;
@@ -89,22 +90,20 @@ std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, boo
             invalidate};
 }
 
-void VulkanStreamBuffer::Send(VulkanSync& sync, VulkanFence& fence, u64 size) {
+void VulkanStreamBuffer::Send(VulkanFence& fence, vk::CommandBuffer cmdbuf, u64 size) {
     ASSERT(size <= mapped_size);
 
     if (use_device) {
-        const vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(fence);
-        const vk::Semaphore semaphore = resource_manager.CommitSemaphore(fence);
-
-        cmdbuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
-
         // Buffers are mirrored.
         const vk::BufferCopy copy_region(buffer_pos, buffer_pos, size);
         cmdbuf.copyBuffer(*mappeable_buffer, *device_buffer, {copy_region});
 
-        cmdbuf.end();
-
-        sync.AddDependency(cmdbuf, semaphore, vk::PipelineStageFlagBits::eTransfer);
+        // FIXME(Rodrigo): Move eVertexAttributeRead and eVertexShader to a constructor argument.
+        vk::BufferMemoryBarrier barrier(vk::AccessFlagBits::eTransferWrite,
+                                        vk::AccessFlagBits::eVertexAttributeRead, graphics_family,
+                                        graphics_family, *device_buffer, buffer_pos, size);
+        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                               vk::PipelineStageFlagBits::eVertexInput, {}, {}, {barrier}, {});
     }
 
     if (used_resources + 1 >= resources.size()) {

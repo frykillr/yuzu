@@ -18,12 +18,13 @@ class VulkanResourceManager;
 class VulkanDevice;
 class VulkanMemoryManager;
 class VulkanFence;
+class VulkanSync;
 
 class VulkanBufferCache final {
 public:
     explicit VulkanBufferCache(VulkanResourceManager& resource_manager,
                                VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                               u64 size);
+                               VulkanSync& sync, u64 size);
     ~VulkanBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been
@@ -39,7 +40,7 @@ public:
     std::tuple<u8*, u64, vk::Buffer> ReserveMemory(std::size_t size, u64 alignment = 4);
 
     void Reserve(std::size_t max_size);
-    void Send(VulkanSync& sync, VulkanFence& fence);
+    void Send(VulkanFence& fence, vk::CommandBuffer cmdbuf);
 
 protected:
     void AlignBuffer(std::size_t alignment);

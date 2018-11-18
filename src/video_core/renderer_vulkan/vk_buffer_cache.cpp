@@ -18,10 +18,10 @@ namespace Vulkan {
 
 VulkanBufferCache::VulkanBufferCache(VulkanResourceManager& resource_manager,
                                      VulkanDevice& device_handler,
-                                     VulkanMemoryManager& memory_manager, u64 size) {
-
+                                     VulkanMemoryManager& memory_manager, VulkanSync& sync,
+                                     u64 size) {
     stream_buffer = std::make_unique<VulkanStreamBuffer>(
-        resource_manager, device_handler, memory_manager, size,
+        resource_manager, device_handler, memory_manager, sync, size,
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
             vk::BufferUsageFlagBits::eUniformBuffer);
 }
@@ -76,8 +76,8 @@ void VulkanBufferCache::Reserve(std::size_t max_size) {
     }
 }
 
-void VulkanBufferCache::Send(VulkanSync& sync, VulkanFence& fence) {
-    stream_buffer->Send(sync, fence, buffer_offset - buffer_offset_base);
+void VulkanBufferCache::Send(VulkanFence& fence, vk::CommandBuffer cmdbuf) {
+    stream_buffer->Send(fence, cmdbuf, buffer_offset - buffer_offset_base);
 }
 
 void VulkanBufferCache::AlignBuffer(std::size_t alignment) {

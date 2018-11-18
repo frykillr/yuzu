@@ -2,9 +2,14 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "common/threadsafe_queue.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_sync.h"
@@ -13,69 +18,107 @@ namespace Vulkan {
 
 VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevice& device_handler)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      queue(device_handler.GetGraphicsQueue()) {}
+      queue(device_handler.GetGraphicsQueue()) {
 
-VulkanSync::~VulkanSync() = default;
+    next_fence = &resource_manager.CommitFence();
 
-VulkanFence& VulkanSync::PrepareExecute(bool take_fence_ownership) {
+    worker_thread = std::thread([&]() {
+        while (executing) {
+            std::unique_lock lock(schedule_mutex);
+            work_signal.wait(lock);
+
+            for (const auto& pass : scheduled_passes) {
+                std::unique_lock fence_lock = pass->fence->Acquire();
+
+                queue.submit(static_cast<u32>(pass->submit_infos.size()), pass->submit_infos.data(),
+                             *pass->fence);
+
+                if (pass->take_fence_ownership) {
+                    pass->fence->Release();
+                }
+            }
+            scheduled_passes.clear();
+            work_done = true;
+
+            flush_signal.notify_one();
+        }
+    });
+}
+
+VulkanSync::~VulkanSync() {
+    executing = false;
+    worker_thread.join();
+}
+
+VulkanFence& VulkanSync::BeginPass(bool take_fence_ownership) {
     recording_submit = true;
 
-    this->take_fence_ownership = take_fence_ownership;
+    VulkanFence& now_fence = *next_fence;
+    pass = std::make_unique<Call>();
+    pass->fence = &now_fence;
+    pass->take_fence_ownership = take_fence_ownership;
 
-    VulkanFence& fence = resource_manager.CommitFence();
-    current_call = std::make_unique<Call>();
-    current_call->fence = &fence;
-    current_call->semaphore = resource_manager.CommitSemaphore(fence);
-    return fence;
+    // Allocate the semaphore the current call will use in a future fence, to avoid it being freed
+    // while it's still being waited on.
+    next_fence = &resource_manager.CommitFence();
+    pass->semaphore = resource_manager.CommitSemaphore(*next_fence);
+
+    return now_fence;
 }
 
 void VulkanSync::AddDependency(vk::CommandBuffer cmdbuf, vk::Semaphore semaphore,
                                vk::PipelineStageFlags pipeline_stage) {
     ASSERT(recording_submit);
 
-    const std::size_t index = dep_cmdbufs.size();
-    dep_cmdbufs.push_back(cmdbuf);
-    dep_signal_semaphores.push_back(semaphore);
-    dep_wait_semaphores.push_back(semaphore);
-    dep_pipeline_stages.push_back(pipeline_stage);
+    const std::size_t index = pass->cmdbufs.size();
+    pass->cmdbufs.push_back(cmdbuf);
+    pass->signal_semaphores.push_back(semaphore);
+    pass->wait_semaphores.push_back(semaphore);
+    pass->pipeline_stages.push_back(pipeline_stage);
 
-    const vk::SubmitInfo si({}, nullptr, nullptr, 1, &dep_cmdbufs[index], 1,
-                            &dep_signal_semaphores[index]);
-    submit_infos.push_back(si);
+    const vk::SubmitInfo si({}, nullptr, nullptr, 1, &pass->cmdbufs[index], 1,
+                            &pass->signal_semaphores[index]);
+    pass->submit_infos.push_back(si);
 }
 
-void VulkanSync::Execute() {
+void VulkanSync::EndPass() {
     ASSERT(recording_submit);
 
     if (previous_semaphore) {
         // TODO(Rodrigo): Pipeline wait can be optimized with an extra argument.
-        dep_wait_semaphores.push_back(previous_semaphore);
-        dep_pipeline_stages.push_back(vk::PipelineStageFlagBits::eAllCommands);
+        pass->wait_semaphores.push_back(previous_semaphore);
+        pass->pipeline_stages.push_back(vk::PipelineStageFlagBits::eAllCommands);
     }
-    ASSERT_MSG(dep_wait_semaphores.size() == dep_pipeline_stages.size(), "Dependency size mismatch");
+    ASSERT_MSG(pass->wait_semaphores.size() == pass->pipeline_stages.size(),
+               "Dependency size mismatch");
 
-    submit_infos.push_back({static_cast<u32>(dep_wait_semaphores.size()), dep_wait_semaphores.data(),
-                            dep_pipeline_stages.data(),
-                            static_cast<u32>(current_call->commands.size()),
-                            current_call->commands.data(), 1, &current_call->semaphore});
+    previous_semaphore = pass->semaphore;
+    pass->submit_infos.push_back({static_cast<u32>(pass->wait_semaphores.size()),
+                                  pass->wait_semaphores.data(), pass->pipeline_stages.data(),
+                                  static_cast<u32>(pass->commands.size()), pass->commands.data(), 1,
+                                  &pass->semaphore});
 
-    queue.submit(static_cast<u32>(submit_infos.size()), submit_infos.data(), *current_call->fence);
-    ClearSubmitData();
-
-    if (take_fence_ownership) {
-        current_call->fence->Release();
-    }
-
-    previous_semaphore = current_call->semaphore;
-    calls.push_back(std::move(current_call));
+    std::unique_lock lock(schedule_mutex);
+    work_done = false;
+    scheduled_passes.push_back(std::move(pass));
+    work_signal.notify_one();
 
     recording_submit = false;
+}
+
+void VulkanSync::Flush() {
+    if (work_done)
+        return;
+    work_signal.notify_one();
+
+    std::unique_lock flush_lock(flush_mutex);
+    flush_signal.wait(flush_lock, [&]() -> bool { return work_done; });
 }
 
 vk::CommandBuffer VulkanSync::BeginRecord() {
     ASSERT(recording_submit);
 
-    vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(*current_call->fence);
+    const vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(*pass->fence);
     cmdbuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     return cmdbuf;
 }
@@ -84,21 +127,13 @@ void VulkanSync::EndRecord(vk::CommandBuffer cmdbuf) {
     ASSERT(recording_submit);
 
     cmdbuf.end();
-    current_call->commands.push_back(cmdbuf);
+    pass->commands.push_back(cmdbuf);
 }
 
 vk::Semaphore VulkanSync::QuerySemaphore() {
     vk::Semaphore semaphore = previous_semaphore;
-    previous_semaphore = vk::Semaphore(nullptr);
+    previous_semaphore = nullptr;
     return semaphore;
-}
-
-void VulkanSync::ClearSubmitData() {
-    submit_infos.clear();
-    dep_cmdbufs.clear();
-    dep_signal_semaphores.clear();
-    dep_wait_semaphores.clear();
-    dep_pipeline_stages.clear();
 }
 
 } // namespace Vulkan

@@ -25,7 +25,7 @@ class VulkanStreamBuffer {
 public:
     explicit VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                 VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                                u64 size, vk::BufferUsageFlags usage);
+                                VulkanSync& sync, u64 size, vk::BufferUsageFlags usage);
     ~VulkanStreamBuffer();
 
     /**
@@ -37,7 +37,7 @@ public:
      */
     std::tuple<u8*, u64, vk::Buffer, bool> Reserve(u64 size, bool keep_in_host);
 
-    void Send(VulkanSync& sync, VulkanFence& fence, u64 size);
+    void Send(VulkanFence& fence, vk::CommandBuffer cmdbuf, u64 size);
 
 private:
     void CreateBuffers(VulkanMemoryManager& memory_manager, vk::BufferUsageFlags usage);
@@ -46,7 +46,9 @@ private:
 
     VulkanResourceManager& resource_manager;
     VulkanMemoryManager& memory_manager;
+    VulkanSync& sync;
     const vk::Device device;
+    const u32 graphics_family;
     const u64 buffer_size;
     const bool has_device_memory;
 
@@ -56,10 +58,10 @@ private:
     vk::UniqueBuffer mappeable_buffer;
     vk::UniqueBuffer device_buffer;
 
-    u8* mapped_ptr;
-    u64 buffer_pos;
-    u64 mapped_size;
-    bool use_device;
+    u8* mapped_ptr{};
+    u64 buffer_pos{};
+    u64 mapped_size{};
+    bool use_device{};
 
     std::vector<std::unique_ptr<VulkanStreamBufferResource>> resources;
     u32 used_resources{};
