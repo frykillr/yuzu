@@ -39,7 +39,6 @@ VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevi
                 if (scheduled_passes.Empty()) {
                     work_done = true;
                 }
-                std::unique_lock flush_lock(flush_mutex);
                 flush_signal.notify_one();
             }
         }
@@ -109,8 +108,8 @@ void VulkanSync::EndPass() {
 void VulkanSync::Flush() {
     if (work_done)
         return;
+    std::unique_lock flush_lock(work_mutex);
     work_cv.notify_one();
-    std::unique_lock flush_lock(flush_mutex);
     flush_signal.wait(flush_lock, [&]() -> bool { return work_done; });
 }
 

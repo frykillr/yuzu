@@ -57,8 +57,7 @@ VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                        u64 size, vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
       graphics_family(device_handler.GetGraphicsFamily()), memory_manager(memory_manager),
-      sync(sync), /*has_device_memory(!memory_manager.IsMemoryUnified()),*/
-      has_device_memory(true), buffer_size(size) {
+      sync(sync), has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
 
     CreateBuffers(memory_manager, usage);
     GrowResources(RESOURCE_RESERVE);
