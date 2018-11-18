@@ -24,23 +24,24 @@ VulkanSync::VulkanSync(VulkanResourceManager& resource_manager, const VulkanDevi
 
     worker_thread = std::thread([&]() {
         while (executing) {
-            std::unique_lock lock(schedule_mutex);
-            work_signal.wait(lock);
+            std::unique_lock work_lock(work_mutex);
+            work_cv.wait(work_lock);
 
-            for (const auto& pass : scheduled_passes) {
+            std::unique_ptr<Call> pass;
+            while (scheduled_passes.Pop(pass)) {
                 std::unique_lock fence_lock = pass->fence->Acquire();
-
                 queue.submit(static_cast<u32>(pass->submit_infos.size()), pass->submit_infos.data(),
                              *pass->fence);
-
                 if (pass->take_fence_ownership) {
                     pass->fence->Release();
                 }
-            }
-            scheduled_passes.clear();
-            work_done = true;
 
-            flush_signal.notify_one();
+                if (scheduled_passes.Empty()) {
+                    work_done = true;
+                }
+                std::unique_lock flush_lock(flush_mutex);
+                flush_signal.notify_one();
+            }
         }
     });
 }
@@ -98,10 +99,9 @@ void VulkanSync::EndPass() {
                                   static_cast<u32>(pass->commands.size()), pass->commands.data(), 1,
                                   &pass->semaphore});
 
-    std::unique_lock lock(schedule_mutex);
     work_done = false;
-    scheduled_passes.push_back(std::move(pass));
-    work_signal.notify_one();
+    scheduled_passes.Push(std::move(pass));
+    work_cv.notify_one();
 
     recording_submit = false;
 }
@@ -109,8 +109,7 @@ void VulkanSync::EndPass() {
 void VulkanSync::Flush() {
     if (work_done)
         return;
-    work_signal.notify_one();
-
+    work_cv.notify_one();
     std::unique_lock flush_lock(flush_mutex);
     flush_signal.wait(flush_lock, [&]() -> bool { return work_done; });
 }

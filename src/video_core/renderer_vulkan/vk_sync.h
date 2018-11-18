@@ -58,15 +58,16 @@ private:
     const vk::Queue queue;
 
     std::unique_ptr<Call> pass;
-    std::vector<std::unique_ptr<Call>> scheduled_passes;
+    Common::SPSCQueue<std::unique_ptr<Call>> scheduled_passes;
 
     VulkanFence* next_fence = nullptr;
     vk::Semaphore previous_semaphore = nullptr;
 
     std::atomic_bool executing = true;
     std::thread worker_thread;
-    std::mutex schedule_mutex;
-    std::condition_variable work_signal;
+
+    std::mutex work_mutex;
+    std::condition_variable work_cv;
 
     std::atomic_bool work_done = false;
     std::mutex flush_mutex;
