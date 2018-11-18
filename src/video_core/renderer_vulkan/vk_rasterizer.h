@@ -28,6 +28,7 @@ class VulkanBufferCache;
 
 class PipelineState;
 struct FramebufferInfo;
+struct FramebufferCacheKey;
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
 public:
@@ -81,6 +82,9 @@ private:
     std::unique_ptr<VulkanRasterizerCache> res_cache;
     std::unique_ptr<VulkanShaderCache> shader_cache;
     std::unique_ptr<VulkanBufferCache> buffer_cache;
+
+    // FIXME(Rodrigo): Invalidate me on shader flush
+    std::map<FramebufferCacheKey, vk::UniqueFramebuffer> framebuffer_cache;
 
     enum class AccelDraw { Disabled, Arrays, Indexed };
     AccelDraw accelerate_draw = AccelDraw::Disabled;

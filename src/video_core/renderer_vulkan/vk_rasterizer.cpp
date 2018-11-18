@@ -26,11 +26,27 @@
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
+using ImageViewsPack = StaticVector<Maxwell::NumRenderTargets + 1, vk::ImageView>;
 
 struct FramebufferInfo {
     vk::Framebuffer framebuffer;
     std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
     Surface zeta_surface;
+};
+
+struct FramebufferCacheKey {
+    vk::RenderPass renderpass;
+    ImageViewsPack views;
+    u32 width;
+    u32 height;
+
+    auto Tie() const {
+        return std::tie(renderpass, views, width, height);
+    }
+
+    bool operator<(const FramebufferCacheKey& rhs) const {
+        return Tie() < rhs.Tie();
+    }
 };
 
 class PipelineState {
@@ -307,21 +323,29 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
         zeta_surface = res_cache->GetDepthBufferSurface(preserve_contents);
     }
 
-    StaticVector<Maxwell::NumRenderTargets + 1, vk::ImageView> views;
+    FramebufferCacheKey fbkey;
+    fbkey.renderpass = renderpass;
+    fbkey.width = 1280;
+    fbkey.height = 720;
 
     if (color_surface != nullptr) {
-        views.Push(color_surface->GetImageView());
+        fbkey.views.Push(color_surface->GetImageView());
     }
     if (zeta_surface != nullptr) {
-        views.Push(zeta_surface->GetImageView());
+        fbkey.views.Push(zeta_surface->GetImageView());
     }
 
-    const vk::FramebufferCreateInfo framebuffer_ci({}, renderpass, static_cast<u32>(views.Size()),
-                                                   views.data(), 1280, 720, 1);
-    const vk::Framebuffer framebuffer = resource_manager.CreateFramebuffer(fence, framebuffer_ci);
+    const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
+    auto& framebuffer = fbentry->second;
+    if (is_cache_miss) {
+        const vk::FramebufferCreateInfo framebuffer_ci(
+            {}, fbkey.renderpass, static_cast<u32>(fbkey.views.Size()), fbkey.views.data(),
+            fbkey.width, fbkey.height, 1);
+        framebuffer = device.createFramebufferUnique(framebuffer_ci);
+    }
 
     FramebufferInfo info;
-    info.framebuffer = framebuffer;
+    info.framebuffer = *framebuffer;
     if (color_surface != nullptr) {
         info.color_surfaces[0] = std::move(color_surface);
     }
