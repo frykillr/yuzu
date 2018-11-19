@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <atomic>
-#include <mutex>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
@@ -133,8 +131,6 @@ public:
     explicit VulkanFence(vk::UniqueFence handle, vk::Device device);
     ~VulkanFence();
 
-    std::unique_lock<std::mutex> Acquire();
-
     /**
      * Waits for the fence to be signaled.
      * @warning You must have ownership of the fence and it has to be previously sent to a queue to
@@ -183,10 +179,8 @@ private:
 
     vk::UniqueFence handle;
     std::vector<VulkanResource*> protected_resources;
-    std::atomic_bool is_owned = false; /// The fence has been commited but not released yet.
+    bool is_owned = false; /// The fence has been commited but not released yet.
     bool is_used = false;  /// The fence has been commited but it has not been checked to be free.
-
-    std::mutex mutex;
 };
 
 class VulkanFenceWatch final : public VulkanResource {

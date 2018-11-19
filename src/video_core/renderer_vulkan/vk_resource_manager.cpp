@@ -106,12 +106,7 @@ VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device)
 
 VulkanFence::~VulkanFence() = default;
 
-std::unique_lock<std::mutex> VulkanFence::Acquire() {
-    return std::unique_lock(mutex);
-}
-
 void VulkanFence::Wait() {
-    std::unique_lock lock(mutex);
     device.waitForFences({*handle}, true, WaitTimeout);
 }
 
@@ -138,6 +133,7 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
         // Wait for the fence if it has been requested.
         device.waitForFences({*handle}, true, WaitTimeout);
     } else {
+        // FIXME(Rodrigo): Check if vkGetFenceStatus is needed to be locked
         if (device.getFenceStatus(*handle) != vk::Result::eSuccess) {
             // Vulkan fence is not ready, not much it can do here
             return false;

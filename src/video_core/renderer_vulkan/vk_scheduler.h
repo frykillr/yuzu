@@ -4,14 +4,10 @@
 
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
 #include <vector>
+#include <memory>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
-#include "common/threadsafe_queue.h"
 
 namespace Vulkan {
 
@@ -26,9 +22,6 @@ public:
     ~VulkanScheduler();
 
     VulkanFence& BeginPass(bool take_fence_ownership = true);
-
-    void AddDependency(vk::CommandBuffer cmdbuf, vk::Semaphore semaphore,
-                       vk::PipelineStageFlags pipeline_stage);
 
     vk::CommandBuffer BeginRecord();
 
@@ -58,20 +51,11 @@ private:
     const vk::Queue queue;
 
     std::unique_ptr<Call> pass;
-    Common::SPSCQueue<std::unique_ptr<Call>> scheduled_passes;
+    std::vector<std::unique_ptr<Call>> scheduled_passes;
+    u32 flush_ticks = 0;
 
     VulkanFence* next_fence = nullptr;
     vk::Semaphore previous_semaphore = nullptr;
-
-    std::atomic_bool executing = true;
-    std::thread worker_thread;
-
-    std::mutex work_mutex;
-    std::condition_variable work_cv;
-
-    std::atomic_bool work_done = false;
-    std::mutex flush_mutex;
-    std::condition_variable flush_signal;
 
     bool recording_submit = false;
 };
