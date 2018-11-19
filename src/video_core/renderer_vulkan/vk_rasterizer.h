@@ -18,7 +18,7 @@ namespace Vulkan {
 
 struct VulkanScreenInfo;
 class VulkanFence;
-class VulkanSync;
+class VulkanScheduler;
 class VulkanRasterizerCache;
 class VulkanResourceManager;
 class VulkanMemoryManager;
@@ -35,7 +35,7 @@ public:
     explicit RasterizerVulkan(Core::Frontend::EmuWindow& render_window,
                               VulkanScreenInfo& screen_info, VulkanDevice& device_handler,
                               VulkanResourceManager& resource_manager,
-                              VulkanMemoryManager& memory_manager, VulkanSync& sync);
+                              VulkanMemoryManager& memory_manager, VulkanScheduler& sched);
     ~RasterizerVulkan() override;
 
     void DrawArrays() override;
@@ -76,7 +76,7 @@ private:
     const vk::Queue graphics_queue;
     VulkanResourceManager& resource_manager;
     VulkanMemoryManager& memory_manager;
-    VulkanSync& sync;
+    VulkanScheduler& sched;
     const u64 uniform_buffer_alignment;
 
     std::unique_ptr<VulkanRasterizerCache> res_cache;

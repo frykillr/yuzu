@@ -24,7 +24,7 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
-#include "video_core/renderer_vulkan/vk_sync.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/utils.h"
 
 #pragma optimize("", off)
@@ -50,11 +50,11 @@ void RendererVulkan::SwapBuffers(
         }
 
         swapchain->AcquireNextImage(*present_semaphore);
-        VulkanFence& fence = blit_screen->Draw(*rasterizer, *sync, *framebuffer);
+        VulkanFence& fence = blit_screen->Draw(*rasterizer, *sched, *framebuffer);
 
-        sync->Flush();
+        sched->Flush();
 
-        const vk::Semaphore render_semaphore = sync->QuerySemaphore();
+        const vk::Semaphore render_semaphore = sched->QuerySemaphore();
         swapchain->Present(*present_semaphore, render_semaphore, fence);
 
         render_window.SwapBuffers();
@@ -83,7 +83,7 @@ bool RendererVulkan::Init() {
     swapchain = std::make_unique<VulkanSwapchain>(surface, *device_handler);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    sync = std::make_unique<VulkanSync>(*resource_manager, *device_handler);
+    sched = std::make_unique<VulkanScheduler>(*resource_manager, *device_handler);
 
     present_semaphore = device.createSemaphoreUnique({});
 
@@ -92,7 +92,7 @@ bool RendererVulkan::Init() {
                                            *memory_manager, *swapchain, screen_info);
 
     rasterizer = std::make_unique<RasterizerVulkan>(render_window, screen_info, *device_handler,
-                                                    *resource_manager, *memory_manager, *sync);
+                                                    *resource_manager, *memory_manager, *sched);
 
     return true;
 }
@@ -105,7 +105,7 @@ void RendererVulkan::ShutDown() {
 
     rasterizer.reset();
     blit_screen.reset();
-    sync.reset();
+    sched.reset();
     swapchain.reset();
     memory_manager.reset();
     present_semaphore.reset();

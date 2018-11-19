@@ -20,11 +20,11 @@ class VulkanMemoryManager;
 class VulkanResourceManager;
 class VulkanStreamBuffer;
 class VulkanSwapchain;
-class VulkanSync;
+class VulkanScheduler;
 class VulkanImage;
 
 class VulkanSwapchain;
-class VulkanSync;
+class VulkanScheduler;
 
 struct VulkanScreenInfo {
     u32 width{};
@@ -62,7 +62,7 @@ private:
     std::unique_ptr<VulkanSwapchain> swapchain;
     std::unique_ptr<VulkanMemoryManager> memory_manager;
     std::unique_ptr<VulkanResourceManager> resource_manager;
-    std::unique_ptr<VulkanSync> sync;
+    std::unique_ptr<VulkanScheduler> sched;
     std::unique_ptr<VulkanBlitScreen> blit_screen;
 
     vk::UniqueSemaphore present_semaphore;

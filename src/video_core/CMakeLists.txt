@@ -86,6 +86,8 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_rasterizer_cache.h
         renderer_vulkan/vk_resource_manager.cpp
         renderer_vulkan/vk_resource_manager.h
+        renderer_vulkan/vk_scheduler.cpp
+        renderer_vulkan/vk_scheduler.h
         renderer_vulkan/vk_shader_cache.cpp
         renderer_vulkan/vk_shader_cache.h
         renderer_vulkan/vk_shader_decompiler.cpp
@@ -98,8 +100,6 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_stream_buffer.h
         renderer_vulkan/vk_swapchain.cpp
         renderer_vulkan/vk_swapchain.h
-        renderer_vulkan/vk_sync.cpp
-        renderer_vulkan/vk_sync.h
         renderer_vulkan/vk_image.cpp
         renderer_vulkan/vk_image.h
         renderer_vulkan/vk_memory_manager.cpp

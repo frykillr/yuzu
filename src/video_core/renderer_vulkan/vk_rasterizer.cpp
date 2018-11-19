@@ -19,7 +19,7 @@
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
-#include "video_core/renderer_vulkan/vk_sync.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 
 namespace Vulkan {
 
@@ -101,18 +101,18 @@ private:
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
                                    VulkanScreenInfo& screen_info, VulkanDevice& device_handler,
                                    VulkanResourceManager& resource_manager,
-                                   VulkanMemoryManager& memory_manager, VulkanSync& sync)
+                                   VulkanMemoryManager& memory_manager, VulkanScheduler& sched)
     : VideoCore::RasterizerInterface(), render_window(renderer), screen_info(screen_info),
       device_handler(device_handler), device(device_handler.GetLogical()),
       graphics_queue(device_handler.GetGraphicsQueue()), resource_manager(resource_manager),
-      memory_manager(memory_manager), sync(sync),
+      memory_manager(memory_manager), sched(sched),
       uniform_buffer_alignment(device_handler.GetUniformBufferAlignment()) {
 
     res_cache =
         std::make_unique<VulkanRasterizerCache>(device_handler, resource_manager, memory_manager);
     shader_cache = std::make_unique<VulkanShaderCache>(device_handler);
     buffer_cache = std::make_unique<VulkanBufferCache>(resource_manager, device_handler,
-                                                       memory_manager, sync, STREAM_BUFFER_SIZE);
+                                                       memory_manager, sched, STREAM_BUFFER_SIZE);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
@@ -127,7 +127,7 @@ void RasterizerVulkan::DrawArrays() {
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
     ASSERT_MSG(!is_indexed, "Unimplemented");
 
-    VulkanFence& fence = sync.BeginPass(true);
+    VulkanFence& fence = sched.BeginPass(true);
     PipelineParams params;
     PipelineState state;
 
@@ -180,7 +180,7 @@ void RasterizerVulkan::DrawArrays() {
 
     state.UpdateDescriptorSets(device);
 
-    const vk::CommandBuffer cmdbuf = sync.BeginRecord();
+    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
     buffer_cache->Send(fence, cmdbuf);
 
@@ -214,8 +214,8 @@ void RasterizerVulkan::DrawArrays() {
     }
     cmdbuf.endRenderPass();
 
-    sync.EndRecord(cmdbuf);
-    sync.EndPass();
+    sched.EndRecord(cmdbuf);
+    sched.EndPass();
 }
 
 void RasterizerVulkan::Clear() {
@@ -231,8 +231,8 @@ void RasterizerVulkan::Clear() {
 
     ASSERT_MSG(use_color, "Unimplemented");
 
-    VulkanFence& fence = sync.BeginPass(true);
-    const vk::CommandBuffer cmdbuf = sync.BeginRecord();
+    VulkanFence& fence = sched.BeginPass(true);
+    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
     if (use_color) {
         Surface color_surface =
@@ -265,8 +265,8 @@ void RasterizerVulkan::Clear() {
                                       {vk::ImageSubresourceRange(aspect, 0, 1, 0, 1)});
     }
 
-    sync.EndRecord(cmdbuf);
-    sync.EndPass();
+    sched.EndRecord(cmdbuf);
+    sched.EndPass();
 }
 
 void RasterizerVulkan::FlushAll() {}

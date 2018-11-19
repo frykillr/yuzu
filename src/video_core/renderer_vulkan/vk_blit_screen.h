@@ -29,7 +29,7 @@ class VulkanFence;
 class VulkanMemoryCommit;
 class VulkanMemoryManager;
 class VulkanSwapchain;
-class VulkanSync;
+class VulkanScheduler;
 class VulkanImage;
 
 class VulkanBlitScreen final {
@@ -42,7 +42,7 @@ public:
 
     void Recreate();
 
-    VulkanFence& Draw(VideoCore::RasterizerInterface& rasterizer, VulkanSync& sync,
+    VulkanFence& Draw(VideoCore::RasterizerInterface& rasterizer, VulkanScheduler& sched,
                       const Tegra::FramebufferConfig& framebuffer);
 
 private:

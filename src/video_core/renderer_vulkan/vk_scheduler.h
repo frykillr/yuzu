@@ -19,11 +19,11 @@ class VulkanDevice;
 class VulkanFence;
 class VulkanResourceManager;
 
-class VulkanSync {
+class VulkanScheduler {
 public:
-    explicit VulkanSync(VulkanResourceManager& resource_manager,
-                        const VulkanDevice& device_handler);
-    ~VulkanSync();
+    explicit VulkanScheduler(VulkanResourceManager& resource_manager,
+                             const VulkanDevice& device_handler);
+    ~VulkanScheduler();
 
     VulkanFence& BeginPass(bool take_fence_ownership = true);
 

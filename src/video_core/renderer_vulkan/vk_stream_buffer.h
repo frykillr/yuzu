@@ -19,13 +19,13 @@ class VulkanMemoryManager;
 class VulkanMemoryCommit;
 class VulkanResourceManager;
 class VulkanStreamBufferResource;
-class VulkanSync;
+class VulkanScheduler;
 
 class VulkanStreamBuffer {
 public:
     explicit VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                 VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                                VulkanSync& sync, u64 size, vk::BufferUsageFlags usage);
+                                VulkanScheduler& sched, u64 size, vk::BufferUsageFlags usage);
     ~VulkanStreamBuffer();
 
     /**
@@ -46,7 +46,7 @@ private:
 
     VulkanResourceManager& resource_manager;
     VulkanMemoryManager& memory_manager;
-    VulkanSync& sync;
+    VulkanScheduler& sched;
     const vk::Device device;
     const u32 graphics_family;
     const u64 buffer_size;

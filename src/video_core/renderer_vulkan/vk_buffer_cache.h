@@ -18,13 +18,13 @@ class VulkanResourceManager;
 class VulkanDevice;
 class VulkanMemoryManager;
 class VulkanFence;
-class VulkanSync;
+class VulkanScheduler;
 
 class VulkanBufferCache final {
 public:
     explicit VulkanBufferCache(VulkanResourceManager& resource_manager,
                                VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                               VulkanSync& sync, u64 size);
+                               VulkanScheduler& sched, u64 size);
     ~VulkanBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been

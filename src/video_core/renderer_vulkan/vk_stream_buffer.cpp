@@ -9,7 +9,7 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
-#include "video_core/renderer_vulkan/vk_sync.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 
 namespace Vulkan {
 
@@ -53,11 +53,11 @@ private:
 
 VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
                                        VulkanDevice& device_handler,
-                                       VulkanMemoryManager& memory_manager, VulkanSync& sync,
+                                       VulkanMemoryManager& memory_manager, VulkanScheduler& sched,
                                        u64 size, vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
       graphics_family(device_handler.GetGraphicsFamily()), memory_manager(memory_manager),
-      sync(sync), has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
+      sched(sched), has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
 
     CreateBuffers(memory_manager, usage);
     GrowResources(RESOURCE_RESERVE);
@@ -75,7 +75,7 @@ std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, boo
     bool invalidate = false;
     if (buffer_pos + size > buffer_size) {
         // TODO(Rodrigo): Find a better way to invalidate than waiting for all resources to finish.
-        sync.Flush();
+        sched.Flush();
         std::for_each(resources.begin(), resources.begin() + used_resources,
                       [&](const auto& resource) { resource->Wait(); });
         used_resources = 0;

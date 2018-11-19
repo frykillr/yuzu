@@ -12,11 +12,12 @@
 #include "common/threadsafe_queue.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_sync.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 
 namespace Vulkan {
 
-VulkanScheduler::VulkanScheduler(VulkanResourceManager& resource_manager, const VulkanDevice& device_handler)
+VulkanScheduler::VulkanScheduler(VulkanResourceManager& resource_manager,
+                                 const VulkanDevice& device_handler)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
       queue(device_handler.GetGraphicsQueue()) {
 
@@ -67,7 +68,7 @@ VulkanFence& VulkanScheduler::BeginPass(bool take_fence_ownership) {
 }
 
 void VulkanScheduler::AddDependency(vk::CommandBuffer cmdbuf, vk::Semaphore semaphore,
-                               vk::PipelineStageFlags pipeline_stage) {
+                                    vk::PipelineStageFlags pipeline_stage) {
     ASSERT(recording_submit);
 
     const std::size_t index = pass->cmdbufs.size();

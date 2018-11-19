@@ -19,7 +19,7 @@
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
-#include "video_core/renderer_vulkan/vk_sync.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/utils.h"
 
 namespace Vulkan {
@@ -193,7 +193,7 @@ void VulkanBlitScreen::Recreate() {
     CreateFramebuffers();
 }
 
-VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VulkanSync& sync,
+VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VulkanScheduler& sched,
                                     const Tegra::FramebufferConfig& framebuffer) {
 
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
@@ -203,7 +203,7 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     RefreshResources(framebuffer);
 
     const u32 image_index = swapchain.GetImageIndex();
-    VulkanFence& fence = sync.BeginPass(false);
+    VulkanFence& fence = sched.BeginPass(false);
     watches[image_index]->Watch(fence);
 
     VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
@@ -219,7 +219,7 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     SetVertexData(framebuffer);
 
     // Record blitting.
-    vk::CommandBuffer cmdbuf{sync.BeginRecord()};
+    vk::CommandBuffer cmdbuf{sched.BeginRecord()};
 
     if (!use_accelerated) {
         const u64 image_offset = GetRawImageOffset(framebuffer, image_index);
@@ -268,8 +268,8 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     }
     cmdbuf.endRenderPass();
 
-    sync.EndRecord(cmdbuf);
-    sync.EndPass();
+    sched.EndRecord(cmdbuf);
+    sched.EndPass();
 
     return fence;
 }

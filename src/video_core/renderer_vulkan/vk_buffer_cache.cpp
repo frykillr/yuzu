@@ -18,10 +18,10 @@ namespace Vulkan {
 
 VulkanBufferCache::VulkanBufferCache(VulkanResourceManager& resource_manager,
                                      VulkanDevice& device_handler,
-                                     VulkanMemoryManager& memory_manager, VulkanSync& sync,
+                                     VulkanMemoryManager& memory_manager, VulkanScheduler& sched,
                                      u64 size) {
     stream_buffer = std::make_unique<VulkanStreamBuffer>(
-        resource_manager, device_handler, memory_manager, sync, size,
+        resource_manager, device_handler, memory_manager, sched, size,
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
             vk::BufferUsageFlagBits::eUniformBuffer);
 }
