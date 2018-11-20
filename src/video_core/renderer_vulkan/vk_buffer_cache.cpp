@@ -29,9 +29,23 @@ VulkanBufferCache::VulkanBufferCache(VulkanResourceManager& resource_manager,
 VulkanBufferCache::~VulkanBufferCache() = default;
 
 std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr,
-                                                            std::size_t size, u64 alignment) {
+                                                            std::size_t size, u64 alignment,
+                                                            bool cache) {
     auto& emu_memory_manager = Core::System::GetInstance().GPU().MemoryManager();
     const auto cpu_addr{emu_memory_manager.GpuToCpuAddress(gpu_addr)};
+
+    // Cache management is a big overhead, so only cache entries with a given size.
+    // TODO: Figure out which size is the best for given games.
+    cache &= size >= 2048;
+
+    if (cache) {
+        if (auto entry = TryGet(*cpu_addr); entry) {
+            if (entry->size >= size && entry->alignment == alignment) {
+                return {entry->offset, entry->buffer};
+            }
+            Unregister(entry);
+        }
+    }
 
     AlignBuffer(alignment);
     const u64 uploaded_offset = buffer_offset;
@@ -40,6 +54,16 @@ std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadMemory(Tegra::GPUVAddr gpu_
 
     buffer_ptr += size;
     buffer_offset += size;
+
+    if (cache) {
+        auto entry = std::make_shared<CachedBufferEntry>();
+        entry->offset = uploaded_offset;
+        entry->buffer = buffer_handle;
+        entry->size = size;
+        entry->alignment = alignment;
+        entry->addr = *cpu_addr;
+        Register(entry);
+    }
 
     return {uploaded_offset, buffer_handle};
 }
@@ -72,7 +96,7 @@ void VulkanBufferCache::Reserve(std::size_t max_size) {
     buffer_offset = buffer_offset_base;
 
     if (invalidate) {
-        // InvalidateAll();
+        InvalidateAll();
     }
 }
 
