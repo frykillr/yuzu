@@ -65,8 +65,9 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X8
     {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X5
     {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_5X4
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BGRA8
+
     // Compressed sRGB formats
+    {vk::Format::eUndefined, ComponentType::Invalid}, // BGRA8_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // DXT1_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // DXT23_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // DXT45_SRGB
@@ -77,6 +78,8 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X4_SRGB
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_10X8
+    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_10X8_SRGB
 
     // Depth formats
     {vk::Format::eUndefined, ComponentType::Invalid}, // Z32F
@@ -92,10 +95,9 @@ vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type)
     ASSERT(static_cast<std::size_t>(pixel_format) < tex_format_tuples.size());
 
     const auto& format = tex_format_tuples[static_cast<u32>(pixel_format)];
-    if (format.format == vk::Format::eUndefined) {
-        UNIMPLEMENTED_MSG("Unimplemented texture format with pixel format={} and component type={}",
-                          static_cast<u32>(pixel_format), static_cast<u32>(component_type));
-    }
+    UNIMPLEMENTED_IF_MSG(format.format == vk::Format::eUndefined,
+                         "Unimplemented texture format with pixel format={} and component type={}",
+                         static_cast<u32>(pixel_format), static_cast<u32>(component_type));
     ASSERT_MSG(component_type == format.component_type, "Component type mismatch");
 
     return format.format;
