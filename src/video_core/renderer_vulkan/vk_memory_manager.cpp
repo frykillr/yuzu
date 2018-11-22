@@ -14,8 +14,6 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 constexpr u64 ALLOC_CHUNK_SIZE = 64 * 1024 * 1024;
@@ -24,9 +22,9 @@ class VKMemoryAllocation final {
 public:
     explicit VKMemoryAllocation(vk::Device device, vk::DeviceMemory memory,
                                 vk::MemoryPropertyFlags properties, u64 alloc_size, u32 type)
-        : device(device), memory(memory), properties(properties), alloc_size(alloc_size),
-          shifted_type(ShiftType(type)),
-          is_mappeable(properties & vk::MemoryPropertyFlagBits::eHostVisible) {
+        : device{device}, memory{memory}, properties{properties}, alloc_size{alloc_size},
+          shifted_type{ShiftType(type)}, is_mappeable{properties &
+                                                      vk::MemoryPropertyFlagBits::eHostVisible} {
 
         if (is_mappeable) {
             base_address = static_cast<u8*>(device.mapMemory(memory, 0, alloc_size, {}));
@@ -129,15 +127,15 @@ private:
 
 VKMemoryCommit::VKMemoryCommit(VKMemoryAllocation* allocation, vk::DeviceMemory memory, u8* data,
                                u64 begin, u64 end)
-    : allocation(allocation), memory(memory), data(data),
+    : allocation{allocation}, memory{memory}, data{data},
       interval(std::make_pair(begin, begin + end)) {}
 
 VKMemoryCommit::~VKMemoryCommit() = default;
 
 VKMemoryManager::VKMemoryManager(const VKDevice& device_handler)
-    : device(device_handler.GetLogical()), physical_device(device_handler.GetPhysical()),
-      props(device_handler.GetPhysical().getMemoryProperties()),
-      is_memory_unified(GetMemoryUnified(props)) {}
+    : device{device_handler.GetLogical()}, physical_device{device_handler.GetPhysical()},
+      props{device_handler.GetPhysical().getMemoryProperties()}, is_memory_unified{
+                                                                     GetMemoryUnified(props)} {}
 
 VKMemoryManager::~VKMemoryManager() = default;
 
