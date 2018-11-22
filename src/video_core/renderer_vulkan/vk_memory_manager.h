@@ -26,35 +26,56 @@ public:
                             u64 begin, u64 end);
     ~VKMemoryCommit();
 
+    /// Returns the Vulkan memory handler.
     vk::DeviceMemory GetMemory() const {
         return memory;
     }
 
+    /// Returns the start position of the commit relative to the allocation.
     vk::DeviceSize GetOffset() const {
         return static_cast<vk::DeviceSize>(interval.first);
     }
 
+    /// Returns the writeable memory map. Do not call when the commit is not mappeable.
     u8* GetData() const {
         ASSERT_MSG(data != nullptr, "Trying to access an unmapped commit.");
         return data;
     }
 
 private:
+    /// Interval where the commit exists.
     const std::pair<u64, u64> interval;
+
+    /// Vulkan device memory handler.
     const vk::DeviceMemory memory;
-    VKMemoryAllocation* allocation;
-    u8* data;
+
+    /// Pointer to the large memory allocation.
+    VKMemoryAllocation* const allocation;
+
+    /// Pointer to the host mapped memory. It's nullptr when the commit is not mappeable.
+    u8* const data;
 };
+
+using Commit = std::shared_ptr<VKMemoryCommit>;
 
 class VKMemoryManager final {
 public:
     explicit VKMemoryManager(const VKDevice& device_handler);
     ~VKMemoryManager();
 
+    /**
+     * Commits a memory with the specified requeriments.
+     * @param reqs Requeriments returned from a Vulkan call.
+     * @param host_visible Signals the allocator that it *must* use host visible and coherent
+     * memory. When passing false, it will try to allocate device local memory.
+     * @returns A pointer to the memory commitment.
+     */
     const VKMemoryCommit* Commit(const vk::MemoryRequirements& reqs, bool host_visible);
 
+    /// Frees the memory commit. It can be nullptr.
     void Free(const VKMemoryCommit* commit);
 
+    /// Returns true if the memory allocations are done always in host visible and coherent memory.
     bool IsMemoryUnified() const {
         return is_memory_unified;
     }
