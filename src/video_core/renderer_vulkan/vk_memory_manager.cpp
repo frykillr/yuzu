@@ -93,7 +93,7 @@ private:
             const u64 try_right = try_left + size;
             const bool overlap = [&]() {
                 for (const auto& commit : commits) {
-                    const auto [commit_left, commit_right] = commit->GetInterval();
+                    const auto [commit_left, commit_right] = commit->interval;
                     if (try_left < commit_right && commit_left < try_right) {
                         iterator = commit_right;
                         return true;
@@ -173,7 +173,7 @@ void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
     if (commit == nullptr) {
         return;
     }
-    commit->GetAllocation()->Free(commit);
+    commit->allocation->Free(commit);
 }
 
 bool VulkanMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32 type_mask,

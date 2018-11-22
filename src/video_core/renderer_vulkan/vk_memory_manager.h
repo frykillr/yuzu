@@ -15,9 +15,12 @@ namespace Vulkan {
 class VulkanDevice;
 class VulkanFence;
 class VulkanMemoryAllocation;
-class VulkanResourceManager;
+class VulkanMemoryManager;
 
 class VulkanMemoryCommit final {
+    friend VulkanMemoryAllocation;
+    friend VulkanMemoryManager;
+
 public:
     explicit VulkanMemoryCommit(VulkanMemoryAllocation* allocation, vk::DeviceMemory memory,
                                 u8* data, u64 begin, u64 end);
@@ -34,14 +37,6 @@ public:
     u8* GetData() const {
         ASSERT_MSG(data != nullptr, "Trying to access an unmapped commit.");
         return data;
-    }
-
-    VulkanMemoryAllocation* GetAllocation() const {
-        return allocation;
-    }
-
-    const std::pair<u64, u64>& GetInterval() const {
-        return interval;
     }
 
 private:
