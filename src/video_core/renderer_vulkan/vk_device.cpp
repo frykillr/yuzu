@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <limits>
+#include <optional>
 #include <set>
 #include <vector>
 #include <vulkan/vulkan.hpp>
@@ -10,116 +12,113 @@
 
 namespace Vulkan {
 
-VKDevice::VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer)
-    : physical(physical), is_renderer(is_renderer) {
+constexpr auto UNDEFINED_FAMILY = std::numeric_limits<u32>::max();
+
+VKDevice::VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface) : physical{physical} {
+    SetupFamilies(surface);
+    SetupProperties();
+}
+
+VKDevice::~VKDevice() = default;
+
+bool VKDevice::CreateLogical() {
+    const auto queue_cis = GetDeviceQueueCreateInfos();
+    vk::PhysicalDeviceFeatures device_features{};
+
+    std::vector<const char*> extensions;
+    extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+    vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(), 0,
+                                   nullptr, static_cast<u32>(extensions.size()), extensions.data(),
+                                   &device_features);
+    vk::Device dummy_logical;
+    if (physical.createDevice(&device_ci, nullptr, &dummy_logical) != vk::Result::eSuccess) {
+        LOG_CRITICAL(Render_Vulkan, "Logical device failed to be created!");
+        return false;
+    }
+
+    logical = vk::UniqueDevice(dummy_logical);
+    graphics_queue = logical->getQueue(graphics_family, 0);
+    present_queue = logical->getQueue(present_family, 0);
+    return true;
+}
+
+bool VKDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface) {
+    const std::string swapchain_extension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+
+    bool has_swapchain{};
+    for (const vk::ExtensionProperties& prop : physical.enumerateDeviceExtensionProperties()) {
+        has_swapchain |= prop.extensionName == swapchain_extension;
+    }
+    if (!has_swapchain) {
+        // The device doesn't support creating swapchains.
+        return false;
+    }
+
+    bool has_graphics{}, has_present{};
+    const auto queue_family_properties = physical.getQueueFamilyProperties();
+    for (u32 i = 0; i < static_cast<u32>(queue_family_properties.size()); ++i) {
+        const auto& family = queue_family_properties[i];
+        if (family.queueCount == 0)
+            continue;
+
+        has_graphics |=
+            (family.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlagBits>(0);
+        has_present |= physical.getSurfaceSupportKHR(i, surface) != 0;
+    }
+    if (!has_graphics || !has_present) {
+        // The device doesn't have a graphics and present queue.
+        return false;
+    }
+
+    // TODO(Rodrigo): Check if the device matches all requeriments.
+    const vk::PhysicalDeviceProperties props = physical.getProperties();
+    if (props.limits.maxUniformBufferRange < 65536) {
+        return false;
+    }
+
+    // Device is suitable.
+    return true;
+}
+
+void VKDevice::SetupFamilies(vk::SurfaceKHR surface) {
+    std::optional<u32> graphics_family, present_family;
 
     const auto queue_family_properties = physical.getQueueFamilyProperties();
     for (u32 i = 0; i < static_cast<u32>(queue_family_properties.size()); ++i) {
-        if (graphics_family != UNDEFINED_FAMILY && present_family != UNDEFINED_FAMILY)
+        if (graphics_family && present_family)
             break;
 
         const auto& queue_family = queue_family_properties[i];
-        if (queue_family.queueCount == 0) {
+        if (queue_family.queueCount == 0)
             continue;
-        }
 
         if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics)
             graphics_family = i;
         if (physical.getSurfaceSupportKHR(i, surface))
             present_family = i;
     }
-    ASSERT(graphics_family != UNDEFINED_FAMILY && present_family != UNDEFINED_FAMILY);
+    ASSERT(graphics_family && present_family);
 
+    this->graphics_family = *graphics_family;
+    this->present_family = *present_family;
+}
+
+void VKDevice::SetupProperties() {
     const vk::PhysicalDeviceProperties props = physical.getProperties();
     device_type = props.deviceType;
-    uniform_buffer_alignment = props.limits.minUniformBufferOffsetAlignment;
-}
-
-VKDevice::~VKDevice() {
-    if (logical) {
-        logical.destroy();
-    }
-}
-
-bool VKDevice::CreateLogical() {
-    const auto queue_cis = GetDeviceQueueCreateInfos();
-    vk::PhysicalDeviceFeatures device_features{};
-
-    std::vector<const char*> extensions{};
-    if (is_renderer) {
-        extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    }
-
-    vk::DeviceCreateInfo device_ci({}, static_cast<u32>(queue_cis.size()), queue_cis.data(), 0,
-                                   nullptr, static_cast<u32>(extensions.size()), extensions.data(),
-                                   &device_features);
-    if (physical.createDevice(&device_ci, nullptr, &logical) != vk::Result::eSuccess) {
-        LOG_CRITICAL(Render_Vulkan, "Logical device failed to be created!");
-        return false;
-    }
-
-    graphics_queue = logical.getQueue(graphics_family, 0);
-    present_queue = logical.getQueue(present_family, 0);
-    return true;
-}
-
-bool VKDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer) {
-    bool has_swapchain{};
-    const std::string swapchain_extension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-    for (const vk::ExtensionProperties& prop : physical.enumerateDeviceExtensionProperties()) {
-        if (prop.extensionName == swapchain_extension) {
-            has_swapchain = true;
-        }
-    }
-
-    bool has_graphics{};
-    bool has_present{};
-    u32 i{};
-    for (const vk::QueueFamilyProperties& family : physical.getQueueFamilyProperties()) {
-        if (family.queueCount == 0) {
-            ++i;
-            continue;
-        }
-        has_graphics |=
-            (family.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlagBits>(0);
-        has_present |= is_renderer && has_swapchain && physical.getSurfaceSupportKHR(i, surface);
-        ++i;
-    }
-
-    // For now, non-renderer devices do not need extra features.
-    if (!is_renderer) {
-        return has_graphics;
-    }
-
-    if (!has_swapchain) {
-        return false;
-    }
-
-    // Check for the device to match Tegra needs.
-    // TODO(Rodrigo): Add the rest of the requeriments.
-    const vk::PhysicalDeviceProperties props = physical.getProperties();
-    if (!(props.limits.maxUniformBufferRange >= 65536 && props.limits.maxColorAttachments >= 8 &&
-          props.limits.maxViewports >= 16)) {
-        return false;
-    }
-
-    return true;
+    uniform_buffer_alignment = static_cast<u64>(props.limits.minUniformBufferOffsetAlignment);
 }
 
 std::vector<vk::DeviceQueueCreateInfo> VKDevice::GetDeviceQueueCreateInfos() const {
     static const float QUEUE_PRIORITY = 1.f;
 
-    std::vector<vk::DeviceQueueCreateInfo> queue_cis;
     std::set<u32> unique_queue_families = {graphics_family, present_family};
+    std::vector<vk::DeviceQueueCreateInfo> queue_cis;
 
-    for (u32 queue_family : unique_queue_families) {
-        VkDeviceQueueCreateInfo queue_ci{};
-        queue_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_ci.queueFamilyIndex = queue_family;
-        queue_ci.queueCount = 1;
-        queue_ci.pQueuePriorities = &QUEUE_PRIORITY;
-        queue_cis.push_back(queue_ci);
-    }
+    for (u32 queue_family : unique_queue_families)
+        queue_cis.push_back({{}, queue_family, 1, &QUEUE_PRIORITY});
+
     return queue_cis;
 }
 

@@ -13,17 +13,13 @@ namespace Vulkan {
 
 class VKDevice final {
 public:
-    explicit VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
+    explicit VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface);
     ~VKDevice();
 
     bool CreateLogical();
 
-    bool IsRenderer() const {
-        return is_renderer;
-    }
-
     vk::Device GetLogical() const {
-        return logical;
+        return logical.get();
     }
 
     vk::PhysicalDevice GetPhysical() const {
@@ -54,21 +50,24 @@ public:
         return uniform_buffer_alignment;
     }
 
-    static bool IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
+    /// Checks if the physical device is suitable.
+    static bool IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface);
 
 private:
+    void SetupFamilies(vk::SurfaceKHR surface);
+
+    void SetupProperties();
+
     std::vector<vk::DeviceQueueCreateInfo> GetDeviceQueueCreateInfos() const;
 
     const vk::PhysicalDevice physical;
-    vk::Device logical{};
+    vk::UniqueDevice logical{};
     vk::Queue graphics_queue{};
     vk::Queue present_queue{};
-    u32 graphics_family = UNDEFINED_FAMILY;
-    u32 present_family = UNDEFINED_FAMILY;
+    u32 graphics_family{};
+    u32 present_family{};
     vk::PhysicalDeviceType device_type{};
-    u64 uniform_buffer_alignment;
-
-    const bool is_renderer;
+    u64 uniform_buffer_alignment{};
 };
 
 } // namespace Vulkan

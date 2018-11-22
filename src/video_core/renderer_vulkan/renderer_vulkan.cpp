@@ -124,12 +124,12 @@ bool RendererVulkan::PickDevices() {
     }
     physical_device = devices[device_index];
 
-    if (!VKDevice::IsSuitable(physical_device, surface, true)) {
+    if (!VKDevice::IsSuitable(physical_device, surface)) {
         LOG_ERROR(Render_Vulkan, "Device is not suitable!");
         return false;
     }
 
-    device_handler = std::make_unique<VKDevice>(physical_device, surface, true);
+    device_handler = std::make_unique<VKDevice>(physical_device, surface);
     return device_handler->CreateLogical();
 }
 

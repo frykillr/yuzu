@@ -12,7 +12,6 @@
 namespace Vulkan {
 
 constexpr auto UNDEFINED_SIZE = std::numeric_limits<u32>::max();
-constexpr auto UNDEFINED_FAMILY = std::numeric_limits<u32>::max();
 
 constexpr auto WAIT_UNLIMITED = std::numeric_limits<u64>::max();
 
