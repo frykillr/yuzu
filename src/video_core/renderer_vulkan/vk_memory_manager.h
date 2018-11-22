@@ -12,19 +12,19 @@
 
 namespace Vulkan {
 
-class VulkanDevice;
-class VulkanFence;
-class VulkanMemoryAllocation;
-class VulkanMemoryManager;
+class VKDevice;
+class VKFence;
+class VKMemoryAllocation;
+class VKMemoryManager;
 
-class VulkanMemoryCommit final {
-    friend VulkanMemoryAllocation;
-    friend VulkanMemoryManager;
+class VKMemoryCommit final {
+    friend VKMemoryAllocation;
+    friend VKMemoryManager;
 
 public:
-    explicit VulkanMemoryCommit(VulkanMemoryAllocation* allocation, vk::DeviceMemory memory,
-                                u8* data, u64 begin, u64 end);
-    ~VulkanMemoryCommit();
+    explicit VKMemoryCommit(VKMemoryAllocation* allocation, vk::DeviceMemory memory, u8* data,
+                            u64 begin, u64 end);
+    ~VKMemoryCommit();
 
     vk::DeviceMemory GetMemory() const {
         return memory;
@@ -42,18 +42,18 @@ public:
 private:
     const std::pair<u64, u64> interval;
     const vk::DeviceMemory memory;
-    VulkanMemoryAllocation* allocation;
+    VKMemoryAllocation* allocation;
     u8* data;
 };
 
-class VulkanMemoryManager final {
+class VKMemoryManager final {
 public:
-    explicit VulkanMemoryManager(const VulkanDevice& device_handler);
-    ~VulkanMemoryManager();
+    explicit VKMemoryManager(const VKDevice& device_handler);
+    ~VKMemoryManager();
 
-    const VulkanMemoryCommit* Commit(const vk::MemoryRequirements& reqs, bool host_visible);
+    const VKMemoryCommit* Commit(const vk::MemoryRequirements& reqs, bool host_visible);
 
-    void Free(const VulkanMemoryCommit* commit);
+    void Free(const VKMemoryCommit* commit);
 
     bool IsMemoryUnified() const {
         return is_memory_unified;
@@ -69,7 +69,7 @@ private:
     const vk::PhysicalDeviceMemoryProperties props;
     const bool is_memory_unified;
 
-    std::vector<std::unique_ptr<VulkanMemoryAllocation>> allocs;
+    std::vector<std::unique_ptr<VKMemoryAllocation>> allocs;
 };
 
 } // namespace Vulkan

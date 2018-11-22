@@ -149,9 +149,9 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
             vk::ImageLayout::eUndefined};
 }
 
-CachedSurface::CachedSurface(VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
-                             VulkanMemoryManager& memory_manager, const SurfaceParams& params)
-    : VulkanImage(device_handler.GetLogical(), params.CreateInfo()),
+CachedSurface::CachedSurface(VKDevice& device_handler, VKResourceManager& resource_manager,
+                             VKMemoryManager& memory_manager, const SurfaceParams& params)
+    : VKImage(device_handler.GetLogical(), params.CreateInfo()),
       device(device_handler.GetLogical()), resource_manager(resource_manager),
       memory_manager(memory_manager), params(params), cached_size_in_bytes(params.size_in_bytes),
       buffer_size(std::max(params.size_in_bytes, params.size_in_bytes_vk)) {
@@ -224,16 +224,15 @@ void CachedSurface::UploadVKTexture() {
     UNIMPLEMENTED();
 }
 
-VulkanRasterizerCache::VulkanRasterizerCache(RasterizerVulkan& rasterizer,
-                                             VulkanDevice& device_handler,
-                                             VulkanResourceManager& resource_manager,
-                                             VulkanMemoryManager& memory_manager)
+VKRasterizerCache::VKRasterizerCache(RasterizerVulkan& rasterizer, VKDevice& device_handler,
+                                     VKResourceManager& resource_manager,
+                                     VKMemoryManager& memory_manager)
     : RasterizerCache{rasterizer}, device_handler{device_handler},
       resource_manager{resource_manager}, memory_manager{memory_manager} {}
 
-VulkanRasterizerCache::~VulkanRasterizerCache() = default;
+VKRasterizerCache::~VKRasterizerCache() = default;
 
-Surface VulkanRasterizerCache::GetDepthBufferSurface(bool preserve_contents) {
+Surface VKRasterizerCache::GetDepthBufferSurface(bool preserve_contents) {
     const auto& regs{Core::System::GetInstance().GPU().Maxwell3D().regs};
     if (!regs.zeta.Address() || !regs.zeta_enable) {
         return {};
@@ -247,7 +246,7 @@ Surface VulkanRasterizerCache::GetDepthBufferSurface(bool preserve_contents) {
     return GetSurface(depth_params, preserve_contents);
 }
 
-Surface VulkanRasterizerCache::GetColorBufferSurface(std::size_t index, bool preserve_contents) {
+Surface VKRasterizerCache::GetColorBufferSurface(std::size_t index, bool preserve_contents) {
     const auto& regs{Core::System::GetInstance().GPU().Maxwell3D().regs};
     ASSERT(index < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets);
 
@@ -261,17 +260,17 @@ Surface VulkanRasterizerCache::GetColorBufferSurface(std::size_t index, bool pre
     return GetSurface(SurfaceParams::CreateForFramebuffer(index), preserve_contents);
 }
 
-Surface VulkanRasterizerCache::TryFindFramebufferSurface(VAddr addr) const {
+Surface VKRasterizerCache::TryFindFramebufferSurface(VAddr addr) const {
     return TryGet(addr);
 }
 
-void VulkanRasterizerCache::LoadSurface(const Surface& surface) {
+void VKRasterizerCache::LoadSurface(const Surface& surface) {
     surface->LoadVKBuffer();
     surface->UploadVKTexture();
     surface->MarkAsModified(false, *this);
 }
 
-Surface VulkanRasterizerCache::GetSurface(const SurfaceParams& params, bool preserve_contents) {
+Surface VKRasterizerCache::GetSurface(const SurfaceParams& params, bool preserve_contents) {
     if (params.addr == 0 || params.height * params.width == 0) {
         return {};
     }
@@ -307,7 +306,7 @@ Surface VulkanRasterizerCache::GetSurface(const SurfaceParams& params, bool pres
     return surface;
 }
 
-Surface VulkanRasterizerCache::GetUncachedSurface(const SurfaceParams& params) {
+Surface VKRasterizerCache::GetUncachedSurface(const SurfaceParams& params) {
     Surface surface{TryGetReservedSurface(params)};
     if (!surface) {
         // No reserved surface available, create a new one and reserve it
@@ -318,18 +317,18 @@ Surface VulkanRasterizerCache::GetUncachedSurface(const SurfaceParams& params) {
     return surface;
 }
 
-Surface VulkanRasterizerCache::RecreateSurface(const Surface& old_surface,
-                                               const SurfaceParams& new_params) {
+Surface VKRasterizerCache::RecreateSurface(const Surface& old_surface,
+                                           const SurfaceParams& new_params) {
     UNIMPLEMENTED();
     return {};
 }
 
-void VulkanRasterizerCache::ReserveSurface(const Surface& surface) {
+void VKRasterizerCache::ReserveSurface(const Surface& surface) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(surface->GetSurfaceParams())};
     surface_reserve[surface_reserve_key] = surface;
 }
 
-Surface VulkanRasterizerCache::TryGetReservedSurface(const SurfaceParams& params) {
+Surface VKRasterizerCache::TryGetReservedSurface(const SurfaceParams& params) {
     const auto& surface_reserve_key{SurfaceReserveKey::Create(params)};
     auto search{surface_reserve.find(surface_reserve_key)};
     if (search != surface_reserve.end()) {

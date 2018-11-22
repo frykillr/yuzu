@@ -4,24 +4,23 @@
 
 #pragma once
 
-#include <vector>
 #include <memory>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
 
 namespace Vulkan {
 
-class VulkanDevice;
-class VulkanFence;
-class VulkanResourceManager;
+class VKDevice;
+class VKFence;
+class VKResourceManager;
 
-class VulkanScheduler {
+class VKScheduler {
 public:
-    explicit VulkanScheduler(VulkanResourceManager& resource_manager,
-                             const VulkanDevice& device_handler);
-    ~VulkanScheduler();
+    explicit VKScheduler(VKResourceManager& resource_manager, const VKDevice& device_handler);
+    ~VKScheduler();
 
-    VulkanFence& BeginPass(bool take_fence_ownership = true);
+    VKFence& BeginPass(bool take_fence_ownership = true);
 
     vk::CommandBuffer BeginRecord();
 
@@ -35,7 +34,7 @@ public:
 
 private:
     struct Call {
-        VulkanFence* fence;
+        VKFence* fence;
         vk::Semaphore semaphore;
         std::vector<vk::CommandBuffer> commands;
         std::vector<vk::CommandBuffer> cmdbufs;
@@ -46,7 +45,7 @@ private:
         bool take_fence_ownership;
     };
 
-    VulkanResourceManager& resource_manager;
+    VKResourceManager& resource_manager;
     const vk::Device device;
     const vk::Queue queue;
 
@@ -54,7 +53,7 @@ private:
     std::vector<std::unique_ptr<Call>> scheduled_passes;
     u32 flush_ticks = 0;
 
-    VulkanFence* next_fence = nullptr;
+    VKFence* next_fence = nullptr;
     vk::Semaphore previous_semaphore = nullptr;
 
     bool recording_submit = false;

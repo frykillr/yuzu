@@ -21,8 +21,8 @@ ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
     Decompiler::SpirvModule module(setup.program.code, PROGRAM_OFFSET,
                                    Maxwell::ShaderStage::Vertex);
     const auto vertex_entry = module.Decompile();
-    const auto main =
-        module.Emit(module.OpFunction(module.OpTypeVoid(), {}, module.OpTypeFunction(module.OpTypeVoid())));
+    const auto main = module.Emit(
+        module.OpFunction(module.OpTypeVoid(), {}, module.OpTypeFunction(module.OpTypeVoid())));
     module.Emit(module.OpLabel());
     module.Emit(module.OpFunctionCall(module.OpTypeBool(), vertex_entry));
     module.Emit(module.OpReturn());

@@ -10,13 +10,13 @@
 
 namespace Vulkan {
 
-class VulkanMemoryCommit;
-class VulkanMemoryManager;
+class VKMemoryCommit;
+class VKMemoryManager;
 
-class VulkanImage {
+class VKImage {
 public:
-    VulkanImage(vk::Device device, const vk::ImageCreateInfo& image_ci);
-    ~VulkanImage();
+    VKImage(vk::Device device, const vk::ImageCreateInfo& image_ci);
+    ~VKImage();
 
     void UpdateLayout(vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
                       vk::AccessFlags new_access) {
@@ -50,7 +50,7 @@ public:
     }
 
 private:
-    VulkanImage(vk::Device device, vk::ImageCreateInfo& image_ci);
+    VKImage(vk::Device device, vk::ImageCreateInfo& image_ci);
 
     const vk::Format format;
 

@@ -10,17 +10,17 @@
 
 namespace Vulkan {
 
-class VulkanDevice;
-class VulkanFence;
-class VulkanFencedPool;
-class VulkanResourceManager;
-class VulkanSemaphorePool;
-class VulkanCommandBufferPool;
+class VKDevice;
+class VKFence;
+class VKFencedPool;
+class VKResourceManager;
+class SemaphorePool;
+class CommandBufferPool;
 
 namespace Resource {
 
 class Base {
-    friend class VulkanFence;
+    friend class VKFence;
 
 public:
     explicit Base();
@@ -31,7 +31,7 @@ protected:
      * Signals the object that an owning fence has been signaled.
      * @param signaling_fence Fence that signals its usage end.
      */
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence) = 0;
+    virtual void OnFenceRemoval(VKFence* signaling_fence) = 0;
 };
 
 /**
@@ -39,10 +39,10 @@ protected:
  * An use case example for this kind of resource are images.
  */
 class Persistent : public Base {
-    friend class VulkanResourceManager;
+    friend class VKResourceManager;
 
 public:
-    explicit Persistent(VulkanResourceManager& resource_manager, vk::Device device);
+    explicit Persistent(VKResourceManager& resource_manager, vk::Device device);
     virtual ~Persistent();
 
     /// Waits for all operations to finish.
@@ -55,7 +55,7 @@ public:
      * @returns A semaphore that's going to be signaled (or is already signaled) when the write
      * operation finishes. Read operations have to be protected with it.
      */
-    vk::Semaphore ReadProtect(VulkanFence& new_fence);
+    vk::Semaphore ReadProtect(VKFence& new_fence);
 
     /**
      * Takes exclusive ownership of the resource to write to it. It will wait for all pending read
@@ -63,20 +63,20 @@ public:
      * @param new_fence Fence to hold the write to write to the resource.
      * @returns A semaphore that has to be signaled when the write operation finishes.
      */
-    vk::Semaphore WriteProtect(VulkanFence& new_fence);
+    vk::Semaphore WriteProtect(VKFence& new_fence);
 
 protected:
-    void OnFenceRemoval(VulkanFence* signaling_fence) override;
+    void OnFenceRemoval(VKFence* signaling_fence) override;
 
 private:
-    VulkanResourceManager& resource_manager;
+    VKResourceManager& resource_manager;
     const vk::Device device;
 
     vk::UniqueSemaphore write_semaphore;
 
-    std::vector<VulkanFence*> read_fences; ///< Fence protecting read operations.
+    std::vector<VKFence*> read_fences; ///< Fence protecting read operations.
 
-    VulkanFence* write_fence; ///< Fence protecting write operations. Null when it's free.
+    VKFence* write_fence; ///< Fence protecting write operations. Null when it's free.
 };
 
 /**
@@ -91,7 +91,7 @@ public:
     bool IsSignaled() const;
 
 protected:
-    void OnFenceRemoval(VulkanFence* signaling_fence) override;
+    void OnFenceRemoval(VKFence* signaling_fence) override;
 
 private:
     bool is_signaled{};
@@ -114,7 +114,7 @@ private:
 
 } // namespace Resource
 
-using VulkanResource = Resource::Base;
+using VKResource = Resource::Base;
 
 /**
  * Fences take ownership of objects, protecting them from GPU-side or driver-side race conditions.
@@ -123,13 +123,13 @@ using VulkanResource = Resource::Base;
  * it if needed and then call Release. Used resources will automatically be signaled by the manager
  * when they are free to be reused.
  */
-class VulkanFence {
+class VKFence {
     friend class Resource::Persistent;
-    friend class VulkanResourceManager;
+    friend class VKResourceManager;
 
 public:
-    explicit VulkanFence(vk::UniqueFence handle, vk::Device device);
-    ~VulkanFence();
+    explicit VKFence(vk::UniqueFence handle, vk::Device device);
+    ~VKFence();
 
     /**
      * Waits for the fence to be signaled.
@@ -149,13 +149,13 @@ public:
      * Protects a resource with this fence.
      * @param resource Resource to protect.
      */
-    void Protect(VulkanResource* resource);
+    void Protect(VKResource* resource);
 
     /**
      * Removes protection for a resource.
      * @param resource Resource to unprotect.
      */
-    void Unprotect(VulkanResource* resource);
+    void Unprotect(VKResource* resource);
 
     /// Retreives the fence.
     operator vk::Fence() const {
@@ -178,15 +178,15 @@ private:
     const vk::Device device;
 
     vk::UniqueFence handle;
-    std::vector<VulkanResource*> protected_resources;
+    std::vector<VKResource*> protected_resources;
     bool is_owned = false; /// The fence has been commited but not released yet.
     bool is_used = false;  /// The fence has been commited but it has not been checked to be free.
 };
 
-class VulkanFenceWatch final : public VulkanResource {
+class VKFenceWatch final : public VKResource {
 public:
-    explicit VulkanFenceWatch();
-    ~VulkanFenceWatch();
+    explicit VKFenceWatch();
+    ~VKFenceWatch();
 
     /// Waits for a watched fence if it is bound.
     void Wait();
@@ -195,25 +195,25 @@ public:
      * Waits for a previous fence and watches a new one.
      * @param new_fence New fence to wait to.
      */
-    void Watch(VulkanFence& new_fence);
+    void Watch(VKFence& new_fence);
 
     /**
      * Checks if it's currently being watched and starts watching it if it's available.
      * @returns True if a watch has started, false if it's being watched.
      */
-    bool TryWatch(VulkanFence& new_fence);
+    bool TryWatch(VKFence& new_fence);
 
 protected:
-    void OnFenceRemoval(VulkanFence* signaling_fence) override;
+    void OnFenceRemoval(VKFence* signaling_fence) override;
 
 private:
-    VulkanFence* fence{};
+    VKFence* fence{};
 };
 
-class VulkanFencedPool {
+class VKFencedPool {
 public:
-    explicit VulkanFencedPool();
-    virtual ~VulkanFencedPool();
+    explicit VKFencedPool();
+    virtual ~VKFencedPool();
 
     void InitResizable(std::size_t initial_capacity, std::size_t grow_step);
     void InitStatic(std::size_t capacity);
@@ -221,7 +221,7 @@ public:
 protected:
     virtual void Allocate(std::size_t begin, std::size_t end);
 
-    std::size_t ResourceCommit(VulkanFence& fence);
+    std::size_t ResourceCommit(VKFence& fence);
 
 private:
     std::size_t HandleFullPool();
@@ -232,37 +232,36 @@ private:
     std::size_t grow_step{};
 
     std::size_t free_iterator = 0;
-    std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
+    std::vector<std::unique_ptr<VKFenceWatch>> watches;
 };
 
 /**
  * The resource manager handles all resources that can be protected with a fence avoiding
- * driver-side or GPU-side race conditions. Use flow is documented in VulkanFence.
+ * driver-side or GPU-side race conditions. Use flow is documented in VKFence.
  */
-class VulkanResourceManager final {
+class VKResourceManager final {
 public:
-    explicit VulkanResourceManager(const VulkanDevice& device_handler);
-    ~VulkanResourceManager();
+    explicit VKResourceManager(const VKDevice& device_handler);
+    ~VKResourceManager();
 
     /// Commits a fence. It has to be sent to a queue and released.
-    VulkanFence& CommitFence();
+    VKFence& CommitFence();
 
-    vk::CommandBuffer CommitCommandBuffer(VulkanFence& fence);
+    vk::CommandBuffer CommitCommandBuffer(VKFence& fence);
 
-    vk::Semaphore CommitSemaphore(VulkanFence& fence);
+    vk::Semaphore CommitSemaphore(VKFence& fence);
 
-    vk::RenderPass CreateRenderPass(VulkanFence& fence,
-                                    const vk::RenderPassCreateInfo& renderpass_ci);
+    vk::RenderPass CreateRenderPass(VKFence& fence, const vk::RenderPassCreateInfo& renderpass_ci);
 
-    vk::ImageView CreateImageView(VulkanFence& fence, const vk::ImageViewCreateInfo& image_view_ci);
+    vk::ImageView CreateImageView(VKFence& fence, const vk::ImageViewCreateInfo& image_view_ci);
 
-    vk::Framebuffer CreateFramebuffer(VulkanFence& fence,
+    vk::Framebuffer CreateFramebuffer(VKFence& fence,
                                       const vk::FramebufferCreateInfo& framebuffer_ci);
 
-    vk::Pipeline CreateGraphicsPipeline(VulkanFence& fence,
+    vk::Pipeline CreateGraphicsPipeline(VKFence& fence,
                                         const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci);
 
-    vk::PipelineLayout CreatePipelineLayout(VulkanFence& fence,
+    vk::PipelineLayout CreatePipelineLayout(VKFence& fence,
                                             const vk::PipelineLayoutCreateInfo& pipeline_layout_ci);
 
 private:
@@ -273,7 +272,7 @@ private:
     using PipelineLayoutEntry = Resource::OneShotEntry<vk::PipelineLayout>;
 
     template <typename EntryType, typename HandleType>
-    HandleType CreateOneShot(VulkanFence& fence, std::vector<std::unique_ptr<EntryType>>& vector,
+    HandleType CreateOneShot(VKFence& fence, std::vector<std::unique_ptr<EntryType>>& vector,
                              vk::UniqueHandle<HandleType> handle);
 
     void TickCreations();
@@ -286,11 +285,11 @@ private:
     const vk::Device device;
     const u32 graphics_family;
 
-    std::vector<std::unique_ptr<VulkanFence>> fences;
+    std::vector<std::unique_ptr<VKFence>> fences;
     std::size_t fences_iterator = 0;
 
-    std::unique_ptr<VulkanCommandBufferPool> command_buffer_pool;
-    std::unique_ptr<VulkanSemaphorePool> semaphore_pool;
+    std::unique_ptr<CommandBufferPool> command_buffer_pool;
+    std::unique_ptr<SemaphorePool> semaphore_pool;
 
     u32 tick_creations{};
 

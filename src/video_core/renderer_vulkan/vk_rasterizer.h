@@ -16,15 +16,15 @@ class EmuWindow;
 
 namespace Vulkan {
 
-struct VulkanScreenInfo;
-class VulkanFence;
-class VulkanScheduler;
-class VulkanRasterizerCache;
-class VulkanResourceManager;
-class VulkanMemoryManager;
-class VulkanDevice;
-class VulkanShaderCache;
-class VulkanBufferCache;
+struct VKScreenInfo;
+class VKFence;
+class VKScheduler;
+class VKRasterizerCache;
+class VKResourceManager;
+class VKMemoryManager;
+class VKDevice;
+class VKShaderCache;
+class VKBufferCache;
 
 class PipelineState;
 struct FramebufferInfo;
@@ -32,10 +32,9 @@ struct FramebufferCacheKey;
 
 class RasterizerVulkan : public VideoCore::RasterizerInterface {
 public:
-    explicit RasterizerVulkan(Core::Frontend::EmuWindow& render_window,
-                              VulkanScreenInfo& screen_info, VulkanDevice& device_handler,
-                              VulkanResourceManager& resource_manager,
-                              VulkanMemoryManager& memory_manager, VulkanScheduler& sched);
+    explicit RasterizerVulkan(Core::Frontend::EmuWindow& render_window, VKScreenInfo& screen_info,
+                              VKDevice& device_handler, VKResourceManager& resource_manager,
+                              VKMemoryManager& memory_manager, VKScheduler& sched);
     ~RasterizerVulkan() override;
 
     void DrawArrays() override;
@@ -56,7 +55,7 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
-    FramebufferInfo ConfigureFramebuffers(VulkanFence& fence, vk::RenderPass renderpass,
+    FramebufferInfo ConfigureFramebuffers(VKFence& fence, vk::RenderPass renderpass,
                                           bool using_color_fb = true, bool use_zeta_fb = true,
                                           bool preserve_contents = true);
 
@@ -70,18 +69,18 @@ private:
     void SyncDepthStencilState(PipelineParams& params);
 
     Core::Frontend::EmuWindow& render_window;
-    VulkanScreenInfo& screen_info;
-    VulkanDevice& device_handler;
+    VKScreenInfo& screen_info;
+    VKDevice& device_handler;
     const vk::Device device;
     const vk::Queue graphics_queue;
-    VulkanResourceManager& resource_manager;
-    VulkanMemoryManager& memory_manager;
-    VulkanScheduler& sched;
+    VKResourceManager& resource_manager;
+    VKMemoryManager& memory_manager;
+    VKScheduler& sched;
     const u64 uniform_buffer_alignment;
 
-    std::unique_ptr<VulkanRasterizerCache> res_cache;
-    std::unique_ptr<VulkanShaderCache> shader_cache;
-    std::unique_ptr<VulkanBufferCache> buffer_cache;
+    std::unique_ptr<VKRasterizerCache> res_cache;
+    std::unique_ptr<VKShaderCache> shader_cache;
+    std::unique_ptr<VKBufferCache> buffer_cache;
 
     // FIXME(Rodrigo): Invalidate me on shader flush
     std::map<FramebufferCacheKey, vk::UniqueFramebuffer> framebuffer_cache;

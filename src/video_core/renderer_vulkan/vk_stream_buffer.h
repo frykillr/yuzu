@@ -13,20 +13,20 @@
 
 namespace Vulkan {
 
-class VulkanDevice;
-class VulkanFence;
-class VulkanMemoryManager;
-class VulkanMemoryCommit;
-class VulkanResourceManager;
-class VulkanStreamBufferResource;
-class VulkanScheduler;
+class VKDevice;
+class VKFence;
+class VKMemoryManager;
+class VKMemoryCommit;
+class VKResourceManager;
+class StreamBufferResource;
+class VKScheduler;
 
-class VulkanStreamBuffer {
+class VKStreamBuffer {
 public:
-    explicit VulkanStreamBuffer(VulkanResourceManager& resource_manager,
-                                VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                                VulkanScheduler& sched, u64 size, vk::BufferUsageFlags usage);
-    ~VulkanStreamBuffer();
+    explicit VKStreamBuffer(VKResourceManager& resource_manager, VKDevice& device_handler,
+                            VKMemoryManager& memory_manager, VKScheduler& sched, u64 size,
+                            vk::BufferUsageFlags usage);
+    ~VKStreamBuffer();
 
     /**
      * Reserves a region of memory from the stream buffer.
@@ -37,23 +37,23 @@ public:
      */
     std::tuple<u8*, u64, vk::Buffer, bool> Reserve(u64 size, bool keep_in_host);
 
-    void Send(VulkanFence& fence, vk::CommandBuffer cmdbuf, u64 size);
+    void Send(VKFence& fence, vk::CommandBuffer cmdbuf, u64 size);
 
 private:
-    void CreateBuffers(VulkanMemoryManager& memory_manager, vk::BufferUsageFlags usage);
+    void CreateBuffers(VKMemoryManager& memory_manager, vk::BufferUsageFlags usage);
 
     void GrowResources(std::size_t grow_size);
 
-    VulkanResourceManager& resource_manager;
-    VulkanMemoryManager& memory_manager;
-    VulkanScheduler& sched;
+    VKResourceManager& resource_manager;
+    VKMemoryManager& memory_manager;
+    VKScheduler& sched;
     const vk::Device device;
     const u32 graphics_family;
     const u64 buffer_size;
     const bool has_device_memory;
 
-    const VulkanMemoryCommit* mappeable_commit{};
-    const VulkanMemoryCommit* device_commit{};
+    const VKMemoryCommit* mappeable_commit{};
+    const VKMemoryCommit* device_commit{};
 
     vk::UniqueBuffer mappeable_buffer;
     vk::UniqueBuffer device_buffer;
@@ -63,7 +63,7 @@ private:
     u64 mapped_size{};
     bool use_device{};
 
-    std::vector<std::unique_ptr<VulkanStreamBufferResource>> resources;
+    std::vector<std::unique_ptr<StreamBufferResource>> resources;
     u32 used_resources{};
 };
 

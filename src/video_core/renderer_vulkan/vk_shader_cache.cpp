@@ -46,7 +46,7 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
     return program_code;
 }
 
-class CachedShader::DescriptorPool final : public VulkanFencedPool {
+class CachedShader::DescriptorPool final : public VKFencedPool {
 public:
     explicit DescriptorPool(vk::Device device,
                             const std::vector<vk::DescriptorPoolSize>& pool_sizes,
@@ -60,7 +60,7 @@ public:
 
     ~DescriptorPool() = default;
 
-    vk::DescriptorSet Commit(VulkanFence& fence) {
+    vk::DescriptorSet Commit(VKFence& fence) {
         const std::size_t index = ResourceCommit(fence);
         const auto pool_index = index / SETS_PER_POOL;
         const auto set_index = index % SETS_PER_POOL;
@@ -91,7 +91,7 @@ private:
     std::vector<std::vector<vk::UniqueDescriptorSet>> allocations;
 };
 
-CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
+CachedShader::CachedShader(VKDevice& device_handler, VAddr addr,
                            Maxwell::ShaderProgram program_type)
     : addr(addr),
       program_type{program_type}, setup{GetShaderCode(addr)}, device{device_handler.GetLogical()} {
@@ -123,7 +123,7 @@ CachedShader::CachedShader(VulkanDevice& device_handler, VAddr addr,
     CreateDescriptorPool();
 }
 
-vk::DescriptorSet CachedShader::CommitDescriptorSet(VulkanFence& fence) {
+vk::DescriptorSet CachedShader::CommitDescriptorSet(VKFence& fence) {
     if (descriptor_pool == nullptr) {
         // If the descriptor pool has not been initialized, it means that the shader doesn't used
         // descriptors. Return a null descriptor set.
@@ -163,11 +163,11 @@ void CachedShader::CreateDescriptorPool() {
     descriptor_pool = std::make_unique<DescriptorPool>(device, pool_sizes, *descriptor_set_layout);
 }
 
-VulkanShaderCache::VulkanShaderCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler)
+VKShaderCache::VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler)
     : RasterizerCache{rasterizer},
       device_handler{device_handler}, device{device_handler.GetLogical()} {}
 
-Pipeline VulkanShaderCache::GetPipeline(const PipelineParams& params) {
+Pipeline VKShaderCache::GetPipeline(const PipelineParams& params) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
 
     Pipeline pipeline;
@@ -224,7 +224,7 @@ Pipeline VulkanShaderCache::GetPipeline(const PipelineParams& params) {
     return pipeline;
 }
 
-void VulkanShaderCache::ObjectInvalidated(const Shader& shader) {
+void VKShaderCache::ObjectInvalidated(const Shader& shader) {
     const VAddr invalidated_addr = shader->GetAddr();
     for (auto it = cache.begin(); it != cache.end();) {
         auto& entry = it->first;
@@ -245,8 +245,8 @@ void VulkanShaderCache::ObjectInvalidated(const Shader& shader) {
     }
 }
 
-vk::UniquePipelineLayout VulkanShaderCache::CreatePipelineLayout(const PipelineParams& params,
-                                                                 const Pipeline& pipeline) const {
+vk::UniquePipelineLayout VKShaderCache::CreatePipelineLayout(const PipelineParams& params,
+                                                             const Pipeline& pipeline) const {
     StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSetLayout> set_layouts;
     for (auto& shader : pipeline.shaders) {
         if (shader != nullptr) {
@@ -258,8 +258,8 @@ vk::UniquePipelineLayout VulkanShaderCache::CreatePipelineLayout(const PipelineP
         {{}, static_cast<u32>(set_layouts.Size()), set_layouts.data(), 0, nullptr});
 }
 
-vk::UniquePipeline VulkanShaderCache::CreatePipeline(const PipelineParams& params,
-                                                     const Pipeline& pipeline) const {
+vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
+                                                 const Pipeline& pipeline) const {
     const auto& vertex_input = params.vertex_input;
     const auto& input_assembly = params.input_assembly;
     const auto& depth_stencil = params.depth_stencil;
@@ -327,7 +327,7 @@ vk::UniquePipeline VulkanShaderCache::CreatePipeline(const PipelineParams& param
     return device.createGraphicsPipelineUnique(nullptr, create_info);
 }
 
-vk::UniqueRenderPass VulkanShaderCache::CreateRenderPass(const PipelineParams& params) const {
+vk::UniqueRenderPass VKShaderCache::CreateRenderPass(const PipelineParams& params) const {
     const auto& p = params.renderpass;
     const bool preserve_contents = p.preserve_contents;
     ASSERT(p.color_map.Size() == 1);

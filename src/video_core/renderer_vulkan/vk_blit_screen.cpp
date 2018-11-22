@@ -17,9 +17,9 @@
 #include "video_core/renderer_vulkan/vk_image.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
-#include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/utils.h"
 
 namespace Vulkan {
@@ -155,18 +155,16 @@ static std::array<f32, 4 * 4> MakeOrthographicMatrix(const f32 width, const f32 
     // clang-format on
 }
 
-VulkanBlitScreen::VulkanBlitScreen(Core::Frontend::EmuWindow& render_window,
-                                   VulkanDevice& device_handler,
-                                   VulkanResourceManager& resource_manager,
-                                   VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain,
-                                   VulkanScreenInfo& screen_info)
+VKBlitScreen::VKBlitScreen(Core::Frontend::EmuWindow& render_window, VKDevice& device_handler,
+                           VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
+                           VKSwapchain& swapchain, VKScreenInfo& screen_info)
     : render_window(render_window), device(device_handler.GetLogical()),
       resource_manager(resource_manager), memory_manager(memory_manager), swapchain(swapchain),
       image_count(swapchain.GetImageCount()), screen_info(screen_info) {
 
     watches.resize(image_count);
     std::generate(watches.begin(), watches.end(),
-                  []() { return std::make_unique<VulkanFenceWatch>(); });
+                  []() { return std::make_unique<VKFenceWatch>(); });
 
     CreateShaders();
     CreateDescriptorPool();
@@ -187,14 +185,14 @@ VulkanBlitScreen::VulkanBlitScreen(Core::Frontend::EmuWindow& render_window,
     Recreate();
 }
 
-VulkanBlitScreen::~VulkanBlitScreen() = default;
+VKBlitScreen::~VKBlitScreen() = default;
 
-void VulkanBlitScreen::Recreate() {
+void VKBlitScreen::Recreate() {
     CreateFramebuffers();
 }
 
-VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VulkanScheduler& sched,
-                                    const Tegra::FramebufferConfig& framebuffer) {
+VKFence& VKBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VKScheduler& sched,
+                            const Tegra::FramebufferConfig& framebuffer) {
 
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
     const bool use_accelerated =
@@ -203,10 +201,10 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     RefreshResources(framebuffer);
 
     const u32 image_index = swapchain.GetImageIndex();
-    VulkanFence& fence = sched.BeginPass(false);
+    VKFence& fence = sched.BeginPass(false);
     watches[image_index]->Watch(fence);
 
-    VulkanImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
+    VKImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
 
     const vk::ImageViewCreateInfo image_view_ci({}, blit_image->GetHandle(), vk::ImageViewType::e2D,
                                                 blit_image->GetFormat(), {},
@@ -274,12 +272,12 @@ VulkanFence& VulkanBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, 
     return fence;
 }
 
-void VulkanBlitScreen::CreateShaders() {
+void VKBlitScreen::CreateShaders() {
     vertex_shader = BuildShader(device, sizeof(blit_vertex_code), blit_vertex_code);
     fragment_shader = BuildShader(device, sizeof(blit_fragment_code), blit_fragment_code);
 }
 
-void VulkanBlitScreen::CreateDescriptorPool() {
+void VKBlitScreen::CreateDescriptorPool() {
     const std::array<vk::DescriptorPoolSize, 2> pool_sizes{
         vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, image_count},
         vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, image_count}};
@@ -288,7 +286,7 @@ void VulkanBlitScreen::CreateDescriptorPool() {
     descriptor_pool = device.createDescriptorPoolUnique(pool_ci);
 }
 
-void VulkanBlitScreen::CreateRenderPass() {
+void VKBlitScreen::CreateRenderPass() {
     const vk::AttachmentDescription color_attachment(
         {}, swapchain.GetImageFormat(), vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eClear,
         vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare,
@@ -311,7 +309,7 @@ void VulkanBlitScreen::CreateRenderPass() {
     renderpass = device.createRenderPassUnique(renderpass_ci);
 }
 
-void VulkanBlitScreen::CreateDescriptorSetLayout() {
+void VKBlitScreen::CreateDescriptorSetLayout() {
     const std::array<vk::DescriptorSetLayoutBinding, 2> layout_bindings{
         vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBuffer, 1,
                                        vk::ShaderStageFlagBits::eVertex, nullptr),
@@ -323,7 +321,7 @@ void VulkanBlitScreen::CreateDescriptorSetLayout() {
     descriptor_set_layout = device.createDescriptorSetLayoutUnique(descriptor_layout_ci);
 }
 
-void VulkanBlitScreen::CreateDescriptorSets() {
+void VKBlitScreen::CreateDescriptorSets() {
     descriptor_sets.resize(image_count);
     for (u32 i = 0; i < image_count; ++i) {
         const vk::DescriptorSetLayout layout = *descriptor_set_layout;
@@ -333,13 +331,13 @@ void VulkanBlitScreen::CreateDescriptorSets() {
     }
 }
 
-void VulkanBlitScreen::CreatePipelineLayout() {
+void VKBlitScreen::CreatePipelineLayout() {
     const vk::PipelineLayoutCreateInfo pipeline_layout_ci({}, 1, &descriptor_set_layout.get(), 0,
                                                           nullptr);
     pipeline_layout = device.createPipelineLayoutUnique(pipeline_layout_ci);
 }
 
-void VulkanBlitScreen::CreateGraphicsPipeline() {
+void VKBlitScreen::CreateGraphicsPipeline() {
     const std::array<vk::PipelineShaderStageCreateInfo, 2> shader_stages = {
         vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eVertex, *vertex_shader,
                                           "main", nullptr),
@@ -391,7 +389,7 @@ void VulkanBlitScreen::CreateGraphicsPipeline() {
     pipeline = device.createGraphicsPipelineUnique({}, pipeline_ci);
 }
 
-void VulkanBlitScreen::CreateFramebuffers() {
+void VKBlitScreen::CreateFramebuffers() {
     const vk::Extent2D size{swapchain.GetSize()};
     framebuffers.clear();
     framebuffers.resize(image_count);
@@ -403,7 +401,7 @@ void VulkanBlitScreen::CreateFramebuffers() {
     }
 }
 
-void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index, vk::ImageView image_view) {
+void VKBlitScreen::UpdateDescriptorSet(u32 image_index, vk::ImageView image_view) {
     const vk::DescriptorSet descriptor_set = descriptor_sets[image_index];
 
     const vk::DescriptorBufferInfo buffer_info(*buffer, GetUniformDataOffset(),
@@ -421,7 +419,7 @@ void VulkanBlitScreen::UpdateDescriptorSet(u32 image_index, vk::ImageView image_
     device.updateDescriptorSets({ubo_write, sampler_write}, {});
 }
 
-void VulkanBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuffer) {
+void VKBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuffer) {
     if (framebuffer.width == raw_width && framebuffer.height == raw_height && !raw_images.empty()) {
         return;
     }
@@ -459,7 +457,7 @@ void VulkanBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuf
             vk::ImageTiling::eLinear,
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
-        raw_images[i] = std::make_unique<VulkanImage>(device, image_ci);
+        raw_images[i] = std::make_unique<VKImage>(device, image_ci);
         const vk::Image image = raw_images[i]->GetHandle();
 
         raw_buffer_commits[i] =
@@ -470,7 +468,7 @@ void VulkanBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuf
     }
 }
 
-void VulkanBlitScreen::SetUniformData(const Tegra::FramebufferConfig& framebuffer) {
+void VKBlitScreen::SetUniformData(const Tegra::FramebufferConfig& framebuffer) {
     const auto& layout = render_window.GetFramebufferLayout();
     u8* data = buffer_commit->GetData();
 
@@ -479,7 +477,7 @@ void VulkanBlitScreen::SetUniformData(const Tegra::FramebufferConfig& framebuffe
         MakeOrthographicMatrix(static_cast<f32>(layout.width), static_cast<f32>(layout.height));
 }
 
-void VulkanBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer) {
+void VKBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer) {
     const auto& framebuffer_transform_flags = framebuffer.transform_flags;
     const auto& framebuffer_crop_rect = framebuffer.crop_rect;
 
@@ -517,23 +515,23 @@ void VulkanBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer
     vertex_data[3] = ScreenRectVertex(x + w, y + h, texcoords.bottom * scale_u, right * scale_v);
 }
 
-u64 VulkanBlitScreen::CalculateBufferSize(const Tegra::FramebufferConfig& framebuffer) const {
+u64 VKBlitScreen::CalculateBufferSize(const Tegra::FramebufferConfig& framebuffer) const {
     const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
 
     return sizeof(ScreenUniformData) + sizeof(ScreenRectVertex) * 4 + size_in_bytes * image_count;
 }
 
-u64 VulkanBlitScreen::GetUniformDataOffset() const {
+u64 VKBlitScreen::GetUniformDataOffset() const {
     return 0;
 }
 
-u64 VulkanBlitScreen::GetVertexDataOffset() const {
+u64 VKBlitScreen::GetVertexDataOffset() const {
     return GetUniformDataOffset() + sizeof(ScreenUniformData);
 }
 
-u64 VulkanBlitScreen::GetRawImageOffset(const Tegra::FramebufferConfig& framebuffer,
-                                        u32 image_index) const {
+u64 VKBlitScreen::GetRawImageOffset(const Tegra::FramebufferConfig& framebuffer,
+                                    u32 image_index) const {
     const u32 bytes_per_pixel{Tegra::FramebufferConfig::BytesPerPixel(framebuffer.pixel_format)};
     const u64 size_in_bytes{framebuffer.stride * framebuffer.height * bytes_per_pixel};
 

@@ -15,20 +15,19 @@ namespace Vulkan {
 
 static constexpr u32 TICKS_TO_FLUSH = 64;
 
-VulkanScheduler::VulkanScheduler(VulkanResourceManager& resource_manager,
-                                 const VulkanDevice& device_handler)
+VKScheduler::VKScheduler(VKResourceManager& resource_manager, const VKDevice& device_handler)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
       queue(device_handler.GetGraphicsQueue()) {
 
     next_fence = &resource_manager.CommitFence();
 }
 
-VulkanScheduler::~VulkanScheduler() = default;
+VKScheduler::~VKScheduler() = default;
 
-VulkanFence& VulkanScheduler::BeginPass(bool take_fence_ownership) {
+VKFence& VKScheduler::BeginPass(bool take_fence_ownership) {
     recording_submit = true;
 
-    VulkanFence& now_fence = *next_fence;
+    VKFence& now_fence = *next_fence;
     pass = std::make_unique<Call>();
     pass->fence = &now_fence;
     pass->take_fence_ownership = take_fence_ownership;
@@ -41,7 +40,7 @@ VulkanFence& VulkanScheduler::BeginPass(bool take_fence_ownership) {
     return now_fence;
 }
 
-void VulkanScheduler::EndPass() {
+void VKScheduler::EndPass() {
     ASSERT(recording_submit);
 
     if (previous_semaphore) {
@@ -67,7 +66,7 @@ void VulkanScheduler::EndPass() {
     recording_submit = false;
 }
 
-vk::CommandBuffer VulkanScheduler::BeginRecord() {
+vk::CommandBuffer VKScheduler::BeginRecord() {
     ASSERT(recording_submit);
 
     const vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(*pass->fence);
@@ -75,13 +74,13 @@ vk::CommandBuffer VulkanScheduler::BeginRecord() {
     return cmdbuf;
 }
 
-void VulkanScheduler::EndRecord(vk::CommandBuffer cmdbuf) {
+void VKScheduler::EndRecord(vk::CommandBuffer cmdbuf) {
     ASSERT(recording_submit);
     cmdbuf.end();
     pass->commands.push_back(cmdbuf);
 }
 
-void VulkanScheduler::Flush() {
+void VKScheduler::Flush() {
     for (auto& pass : scheduled_passes) {
         queue.submit(static_cast<u32>(pass->submit_infos.size()), pass->submit_infos.data(),
                      *pass->fence);
@@ -92,7 +91,7 @@ void VulkanScheduler::Flush() {
     scheduled_passes.clear();
 }
 
-vk::Semaphore VulkanScheduler::QuerySemaphore() {
+vk::Semaphore VKScheduler::QuerySemaphore() {
     vk::Semaphore semaphore = previous_semaphore;
     previous_semaphore = nullptr;
     return semaphore;

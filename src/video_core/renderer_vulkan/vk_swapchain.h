@@ -15,20 +15,19 @@ struct FramebufferLayout;
 
 namespace Vulkan {
 
-class VulkanDevice;
-class VulkanFence;
+class VKDevice;
+class VKFence;
 
-class VulkanSwapchain {
+class VKSwapchain {
 public:
-    explicit VulkanSwapchain(vk::SurfaceKHR surface, const VulkanDevice& device_handler);
-    ~VulkanSwapchain();
+    explicit VKSwapchain(vk::SurfaceKHR surface, const VKDevice& device_handler);
+    ~VKSwapchain();
 
     void Create(u32 width, u32 height);
 
     void AcquireNextImage(vk::Semaphore present_complete);
 
-    void Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
-                 VulkanFence& fence);
+    void Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore, VKFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 
@@ -75,7 +74,7 @@ private:
     std::vector<vk::Image> images;
     std::vector<vk::UniqueImageView> image_views;
     std::vector<vk::UniqueFramebuffer> framebuffers;
-    std::vector<VulkanFence*> fences;
+    std::vector<VKFence*> fences;
 
     u32 image_index{};
 

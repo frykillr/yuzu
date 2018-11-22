@@ -16,11 +16,11 @@
 namespace Vulkan {
 
 class RasterizerVulkan;
-class VulkanResourceManager;
-class VulkanDevice;
-class VulkanMemoryManager;
-class VulkanFence;
-class VulkanScheduler;
+class VKResourceManager;
+class VKDevice;
+class VKMemoryManager;
+class VKFence;
+class VKScheduler;
 
 struct CachedBufferEntry final : public RasterizerCacheObject {
     VAddr GetAddr() const override {
@@ -41,13 +41,12 @@ struct CachedBufferEntry final : public RasterizerCacheObject {
     std::size_t alignment;
 };
 
-class VulkanBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferEntry>> {
+class VKBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferEntry>> {
 public:
-    explicit VulkanBufferCache(RasterizerVulkan& rasterizer,
-                               VulkanResourceManager& resource_manager,
-                               VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
-                               VulkanScheduler& sched, u64 size);
-    ~VulkanBufferCache();
+    explicit VKBufferCache(RasterizerVulkan& rasterizer, VKResourceManager& resource_manager,
+                           VKDevice& device_handler, VKMemoryManager& memory_manager,
+                           VKScheduler& sched, u64 size);
+    ~VKBufferCache();
 
     /// Uploads data from a guest GPU address. Returns host's buffer offset where it's been
     /// allocated.
@@ -62,13 +61,13 @@ public:
     std::tuple<u8*, u64, vk::Buffer> ReserveMemory(std::size_t size, u64 alignment = 4);
 
     void Reserve(std::size_t max_size);
-    void Send(VulkanFence& fence, vk::CommandBuffer cmdbuf);
+    void Send(VKFence& fence, vk::CommandBuffer cmdbuf);
 
 protected:
     void AlignBuffer(std::size_t alignment);
 
 private:
-    std::unique_ptr<VulkanStreamBuffer> stream_buffer;
+    std::unique_ptr<VKStreamBuffer> stream_buffer;
 
     u8* buffer_ptr = nullptr;
     u64 buffer_offset = 0;

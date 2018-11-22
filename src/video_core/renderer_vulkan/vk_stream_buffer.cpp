@@ -8,24 +8,24 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_stream_buffer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
 namespace Vulkan {
 
 constexpr u64 RESOURCE_RESERVE = 0x4000;
 constexpr u64 RESOURCE_CHUNK = 0x1000;
 
-class VulkanStreamBufferResource final : public VulkanResource {
+class StreamBufferResource final : public VKResource {
 public:
-    explicit VulkanStreamBufferResource() = default;
-    virtual ~VulkanStreamBufferResource() {
+    explicit StreamBufferResource() = default;
+    virtual ~StreamBufferResource() {
         if (fence) {
             fence->Unprotect(this);
         }
     }
 
-    void Setup(VulkanFence& new_fence) {
+    void Setup(VKFence& new_fence) {
         if (fence) {
             fence->Unprotect(this);
         }
@@ -41,20 +41,19 @@ public:
     }
 
 protected:
-    virtual void OnFenceRemoval(VulkanFence* signaling_fence) {
+    virtual void OnFenceRemoval(VKFence* signaling_fence) {
         ASSERT(signaling_fence == fence);
         fence = nullptr;
     }
 
 private:
-    VulkanFence* fence{};
+    VKFence* fence{};
     bool is_signaled{};
 };
 
-VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
-                                       VulkanDevice& device_handler,
-                                       VulkanMemoryManager& memory_manager, VulkanScheduler& sched,
-                                       u64 size, vk::BufferUsageFlags usage)
+VKStreamBuffer::VKStreamBuffer(VKResourceManager& resource_manager, VKDevice& device_handler,
+                               VKMemoryManager& memory_manager, VKScheduler& sched, u64 size,
+                               vk::BufferUsageFlags usage)
     : resource_manager(resource_manager), device(device_handler.GetLogical()),
       graphics_family(device_handler.GetGraphicsFamily()), memory_manager(memory_manager),
       sched(sched), has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
@@ -63,12 +62,12 @@ VulkanStreamBuffer::VulkanStreamBuffer(VulkanResourceManager& resource_manager,
     GrowResources(RESOURCE_RESERVE);
 }
 
-VulkanStreamBuffer::~VulkanStreamBuffer() {
+VKStreamBuffer::~VKStreamBuffer() {
     memory_manager.Free(device_commit);
     memory_manager.Free(mappeable_commit);
 }
 
-std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, bool keep_in_host) {
+std::tuple<u8*, u64, vk::Buffer, bool> VKStreamBuffer::Reserve(u64 size, bool keep_in_host) {
     ASSERT(size <= buffer_size);
     mapped_size = size;
 
@@ -89,7 +88,7 @@ std::tuple<u8*, u64, vk::Buffer, bool> VulkanStreamBuffer::Reserve(u64 size, boo
             invalidate};
 }
 
-void VulkanStreamBuffer::Send(VulkanFence& fence, vk::CommandBuffer cmdbuf, u64 size) {
+void VKStreamBuffer::Send(VKFence& fence, vk::CommandBuffer cmdbuf, u64 size) {
     ASSERT(size <= mapped_size);
 
     if (use_device) {
@@ -114,8 +113,7 @@ void VulkanStreamBuffer::Send(VulkanFence& fence, vk::CommandBuffer cmdbuf, u64 
     buffer_pos += size;
 }
 
-void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
-                                       vk::BufferUsageFlags usage) {
+void VKStreamBuffer::CreateBuffers(VKMemoryManager& memory_manager, vk::BufferUsageFlags usage) {
     {
         vk::BufferUsageFlags mappeable_usage = usage;
         if (has_device_memory) {
@@ -147,11 +145,11 @@ void VulkanStreamBuffer::CreateBuffers(VulkanMemoryManager& memory_manager,
     }
 }
 
-void VulkanStreamBuffer::GrowResources(std::size_t grow_size) {
+void VKStreamBuffer::GrowResources(std::size_t grow_size) {
     const std::size_t previous_size = resources.size();
     resources.resize(previous_size + grow_size);
     std::generate(resources.begin() + previous_size, resources.end(),
-                  [&]() { return std::make_unique<VulkanStreamBufferResource>(); });
+                  [&]() { return std::make_unique<StreamBufferResource>(); });
 }
 
 } // namespace Vulkan

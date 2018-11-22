@@ -93,10 +93,8 @@ vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type)
 
     const auto& format = tex_format_tuples[static_cast<u32>(pixel_format)];
     if (format.format == vk::Format::eUndefined) {
-        LOG_CRITICAL(Render_Vulkan,
-                     "Unimplemented texture format with pixel format={} and component type={}",
-                     static_cast<u32>(pixel_format), static_cast<u32>(component_type));
-        UNREACHABLE();
+        UNIMPLEMENTED_MSG("Unimplemented texture format with pixel format={} and component type={}",
+                          static_cast<u32>(pixel_format), static_cast<u32>(component_type));
     }
     ASSERT_MSG(component_type == format.component_type, "Component type mismatch");
 
@@ -110,8 +108,7 @@ vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderStage stage) {
     case Maxwell::ShaderStage::Fragment:
         return vk::ShaderStageFlagBits::eFragment;
     }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented shader stage={}", static_cast<u32>(stage));
-    UNREACHABLE();
+    UNIMPLEMENTED_MSG("Unimplemented shader stage={}", static_cast<u32>(stage));
     return {};
 }
 
@@ -128,8 +125,7 @@ vk::PrimitiveTopology PrimitiveTopology(Maxwell::PrimitiveTopology topology) {
     case Maxwell::PrimitiveTopology::TriangleStrip:
         return vk::PrimitiveTopology::eTriangleStrip;
     }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented topology={}", static_cast<u32>(topology));
-    UNREACHABLE();
+    UNIMPLEMENTED_MSG("Unimplemented topology={}", static_cast<u32>(topology));
     return {};
 }
 
@@ -153,9 +149,8 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
         }
         break;
     }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented vertex format of type={} and size={}",
-                 static_cast<u32>(type), static_cast<u32>(size));
-    UNREACHABLE();
+    UNIMPLEMENTED_MSG("Unimplemented vertex format of type={} and size={}", static_cast<u32>(type),
+                      static_cast<u32>(size));
     return vk::Format::eR8Unorm;
 }
 
@@ -186,8 +181,7 @@ vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
     case Maxwell::ComparisonOp::AlwaysOld:
         return vk::CompareOp::eAlways;
     }
-    LOG_CRITICAL(Render_Vulkan, "Unimplemented comparison op={}", static_cast<u32>(comparison));
-    UNREACHABLE();
+    UNIMPLEMENTED_MSG("Unimplemented comparison op={}", static_cast<u32>(comparison));
     return vk::CompareOp::eAlways;
 }
 

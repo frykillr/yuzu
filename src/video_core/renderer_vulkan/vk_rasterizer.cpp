@@ -98,21 +98,20 @@ private:
     std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BINDINGS> buffer_infos;
 };
 
-RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
-                                   VulkanScreenInfo& screen_info, VulkanDevice& device_handler,
-                                   VulkanResourceManager& resource_manager,
-                                   VulkanMemoryManager& memory_manager, VulkanScheduler& sched)
+RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer, VKScreenInfo& screen_info,
+                                   VKDevice& device_handler, VKResourceManager& resource_manager,
+                                   VKMemoryManager& memory_manager, VKScheduler& sched)
     : VideoCore::RasterizerInterface(), render_window(renderer), screen_info(screen_info),
       device_handler(device_handler), device(device_handler.GetLogical()),
       graphics_queue(device_handler.GetGraphicsQueue()), resource_manager(resource_manager),
       memory_manager(memory_manager), sched(sched),
       uniform_buffer_alignment(device_handler.GetUniformBufferAlignment()) {
 
-    res_cache =
-        std::make_unique<VulkanRasterizerCache>(*this, device_handler, resource_manager, memory_manager);
-    shader_cache = std::make_unique<VulkanShaderCache>(*this, device_handler);
-    buffer_cache = std::make_unique<VulkanBufferCache>(*this, resource_manager, device_handler,
-                                                       memory_manager, sched, STREAM_BUFFER_SIZE);
+    res_cache = std::make_unique<VKRasterizerCache>(*this, device_handler, resource_manager,
+                                                    memory_manager);
+    shader_cache = std::make_unique<VKShaderCache>(*this, device_handler);
+    buffer_cache = std::make_unique<VKBufferCache>(*this, resource_manager, device_handler,
+                                                   memory_manager, sched, STREAM_BUFFER_SIZE);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
@@ -127,7 +126,7 @@ void RasterizerVulkan::DrawArrays() {
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
     ASSERT_MSG(!is_indexed, "Unimplemented");
 
-    VulkanFence& fence = sched.BeginPass(true);
+    VKFence& fence = sched.BeginPass(true);
     PipelineParams params;
     PipelineState state;
 
@@ -231,7 +230,7 @@ void RasterizerVulkan::Clear() {
 
     ASSERT_MSG(use_color, "Unimplemented");
 
-    VulkanFence& fence = sched.BeginPass(true);
+    VKFence& fence = sched.BeginPass(true);
     const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
     if (use_color) {
@@ -307,8 +306,7 @@ bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
     return true;
 }
 
-FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VulkanFence& fence,
-                                                        vk::RenderPass renderpass,
+FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::RenderPass renderpass,
                                                         bool using_color_fb, bool using_zeta_fb,
                                                         bool preserve_contents) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;

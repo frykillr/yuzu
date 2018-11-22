@@ -38,7 +38,7 @@ static vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentMod
 
 static vk::Extent2D ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities, u32 width,
                                      u32 height) {
-    if (capabilities.currentExtent.width != UndefinedSize) {
+    if (capabilities.currentExtent.width != UNDEFINED_SIZE) {
         return capabilities.currentExtent;
     }
     vk::Extent2D extent = {width, height};
@@ -49,18 +49,18 @@ static vk::Extent2D ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilit
     return extent;
 }
 
-VulkanSwapchain::VulkanSwapchain(vk::SurfaceKHR surface, const VulkanDevice& device_handler)
+VKSwapchain::VKSwapchain(vk::SurfaceKHR surface, const VKDevice& device_handler)
     : surface(surface), device(device_handler.GetLogical()),
       physical_device(device_handler.GetPhysical()),
       present_queue(device_handler.GetPresentQueue()),
       graphics_family(device_handler.GetGraphicsFamily()),
       present_family(device_handler.GetPresentFamily()) {}
 
-VulkanSwapchain::~VulkanSwapchain() {
+VKSwapchain::~VKSwapchain() {
     Destroy();
 }
 
-void VulkanSwapchain::Create(u32 width, u32 height) {
+void VKSwapchain::Create(u32 width, u32 height) {
     const vk::SurfaceCapabilitiesKHR capabilities{
         physical_device.getSurfaceCapabilitiesKHR(surface)};
     if (capabilities.maxImageExtent.width == 0 || capabilities.maxImageExtent.height == 0) {
@@ -76,8 +76,8 @@ void VulkanSwapchain::Create(u32 width, u32 height) {
     fences.resize(image_count, nullptr);
 }
 
-void VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
-    device.acquireNextImageKHR(*handle, WaitTimeout, present_complete, {}, &image_index);
+void VKSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
+    device.acquireNextImageKHR(*handle, WAIT_UNLIMITED, present_complete, {}, &image_index);
 
     if (auto& fence = fences[image_index]; fence) {
         fence->Wait();
@@ -86,8 +86,8 @@ void VulkanSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
     }
 }
 
-void VulkanSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
-                              VulkanFence& fence) {
+void VKSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
+                          VKFence& fence) {
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
 
@@ -111,13 +111,13 @@ void VulkanSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore ren
     fences[image_index] = &fence;
 }
 
-bool VulkanSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const {
+bool VKSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const {
     // TODO(Rodrigo): Handle framebuffer pixel format changes
     return framebuffer.width != current_width || framebuffer.height != current_height;
 }
 
-void VulkanSwapchain::CreateSwapchain(u32 width, u32 height,
-                                      const vk::SurfaceCapabilitiesKHR& capabilities) {
+void VKSwapchain::CreateSwapchain(u32 width, u32 height,
+                                  const vk::SurfaceCapabilitiesKHR& capabilities) {
     std::vector<vk::SurfaceFormatKHR> formats{physical_device.getSurfaceFormatsKHR(surface)};
 
     std::vector<vk::PresentModeKHR> present_modes{
@@ -156,7 +156,7 @@ void VulkanSwapchain::CreateSwapchain(u32 width, u32 height,
     image_format = surface_format.format;
 }
 
-void VulkanSwapchain::CreateImageViews() {
+void VKSwapchain::CreateImageViews() {
     image_views.resize(image_count);
     for (u32 i = 0; i < image_count; i++) {
         vk::ImageViewCreateInfo image_view_ci({}, images[i], vk::ImageViewType::e2D, image_format,
@@ -165,7 +165,7 @@ void VulkanSwapchain::CreateImageViews() {
     }
 }
 
-void VulkanSwapchain::Destroy() {
+void VKSwapchain::Destroy() {
     framebuffers.clear();
     image_views.clear();
     handle.reset();

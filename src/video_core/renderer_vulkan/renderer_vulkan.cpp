@@ -23,8 +23,8 @@
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/utils.h"
 
 #pragma optimize("", off)
@@ -50,7 +50,7 @@ void RendererVulkan::SwapBuffers(
         }
 
         swapchain->AcquireNextImage(*present_semaphore);
-        VulkanFence& fence = blit_screen->Draw(*rasterizer, *sched, *framebuffer);
+        VKFence& fence = blit_screen->Draw(*rasterizer, *sched, *framebuffer);
 
         sched->Flush();
 
@@ -75,21 +75,20 @@ bool RendererVulkan::Init() {
     device = device_handler->GetLogical();
     physical_device = device_handler->GetPhysical();
 
-    memory_manager = std::make_unique<VulkanMemoryManager>(*device_handler);
+    memory_manager = std::make_unique<VKMemoryManager>(*device_handler);
 
-    resource_manager = std::make_unique<VulkanResourceManager>(*device_handler);
+    resource_manager = std::make_unique<VKResourceManager>(*device_handler);
 
     const auto& framebuffer = render_window.GetFramebufferLayout();
-    swapchain = std::make_unique<VulkanSwapchain>(surface, *device_handler);
+    swapchain = std::make_unique<VKSwapchain>(surface, *device_handler);
     swapchain->Create(framebuffer.width, framebuffer.height);
 
-    sched = std::make_unique<VulkanScheduler>(*resource_manager, *device_handler);
+    sched = std::make_unique<VKScheduler>(*resource_manager, *device_handler);
 
     present_semaphore = device.createSemaphoreUnique({});
 
-    blit_screen =
-        std::make_unique<VulkanBlitScreen>(render_window, *device_handler, *resource_manager,
-                                           *memory_manager, *swapchain, screen_info);
+    blit_screen = std::make_unique<VKBlitScreen>(render_window, *device_handler, *resource_manager,
+                                                 *memory_manager, *swapchain, screen_info);
 
     rasterizer = std::make_unique<RasterizerVulkan>(render_window, screen_info, *device_handler,
                                                     *resource_manager, *memory_manager, *sched);
@@ -125,12 +124,12 @@ bool RendererVulkan::PickDevices() {
     }
     physical_device = devices[device_index];
 
-    if (!VulkanDevice::IsSuitable(physical_device, surface, true)) {
+    if (!VKDevice::IsSuitable(physical_device, surface, true)) {
         LOG_ERROR(Render_Vulkan, "Device is not suitable!");
         return false;
     }
 
-    device_handler = std::make_unique<VulkanDevice>(physical_device, surface, true);
+    device_handler = std::make_unique<VKDevice>(physical_device, surface, true);
     return device_handler->CreateLogical();
 }
 

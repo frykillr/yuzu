@@ -23,10 +23,10 @@
 namespace Vulkan {
 
 class RasterizerVulkan;
-class VulkanDevice;
-class VulkanResourceManager;
-class VulkanMemoryManager;
-class VulkanMemoryCommit;
+class VKDevice;
+class VKResourceManager;
+class VKMemoryManager;
+class VKMemoryCommit;
 
 using VideoCore::Surface::ComponentType;
 using VideoCore::Surface::PixelFormat;
@@ -95,10 +95,10 @@ struct SurfaceParams {
     std::size_t size_in_bytes_vk;
 };
 
-class CachedSurface final : public RasterizerCacheObject, public VulkanImage {
+class CachedSurface final : public RasterizerCacheObject, public VKImage {
 public:
-    explicit CachedSurface(VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
-                           VulkanMemoryManager& memory_manager, const SurfaceParams& params);
+    explicit CachedSurface(VKDevice& device_handler, VKResourceManager& resource_manager,
+                           VKMemoryManager& memory_manager, const SurfaceParams& params);
     ~CachedSurface();
 
     vk::ImageView GetImageView();
@@ -132,16 +132,16 @@ public:
 
 private:
     const vk::Device device;
-    VulkanResourceManager& resource_manager;
-    VulkanMemoryManager& memory_manager;
+    VKResourceManager& resource_manager;
+    VKMemoryManager& memory_manager;
     const SurfaceParams params;
     const std::size_t buffer_size;
 
     vk::Image image;
-    const VulkanMemoryCommit* image_commit{};
+    const VKMemoryCommit* image_commit{};
 
     vk::UniqueBuffer buffer;
-    const VulkanMemoryCommit* buffer_commit{};
+    const VKMemoryCommit* buffer_commit{};
     u8* vk_buffer{};
 
     vk::UniqueImageView image_view;
@@ -174,12 +174,12 @@ struct hash<SurfaceReserveKey> {
 
 namespace Vulkan {
 
-class VulkanRasterizerCache final : public RasterizerCache<Surface> {
+class VKRasterizerCache final : public RasterizerCache<Surface> {
 public:
-    explicit VulkanRasterizerCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler,
-                                   VulkanResourceManager& resource_manager,
-                                   VulkanMemoryManager& memory_manager);
-    ~VulkanRasterizerCache();
+    explicit VKRasterizerCache(RasterizerVulkan& rasterizer, VKDevice& device_handler,
+                               VKResourceManager& resource_manager,
+                               VKMemoryManager& memory_manager);
+    ~VKRasterizerCache();
 
     /// Get the depth surface based on the framebuffer configuration
     Surface GetDepthBufferSurface(bool preserve_contents);
@@ -191,9 +191,9 @@ public:
     Surface TryFindFramebufferSurface(VAddr addr) const;
 
 private:
-    VulkanDevice& device_handler;
-    VulkanResourceManager& resource_manager;
-    VulkanMemoryManager& memory_manager;
+    VKDevice& device_handler;
+    VKResourceManager& resource_manager;
+    VKMemoryManager& memory_manager;
 
     void LoadSurface(const Surface& surface);
     Surface GetSurface(const SurfaceParams& params, bool preserve_contents = true);

@@ -12,24 +12,20 @@
 
 namespace Vulkan {
 
-class VulkanBlitScreen;
-class VulkanMemoryCommit;
-class VulkanDevice;
-class VulkanFence;
-class VulkanMemoryManager;
-class VulkanResourceManager;
-class VulkanStreamBuffer;
-class VulkanSwapchain;
-class VulkanScheduler;
-class VulkanImage;
+class VKBlitScreen;
+class VKMemoryCommit;
+class VKDevice;
+class VKFence;
+class VKMemoryManager;
+class VKResourceManager;
+class VKSwapchain;
+class VKScheduler;
+class VKImage;
 
-class VulkanSwapchain;
-class VulkanScheduler;
-
-struct VulkanScreenInfo {
+struct VKScreenInfo {
     u32 width{};
     u32 height{};
-    VulkanImage* image{};
+    VKImage* image{};
 };
 
 class RendererVulkan : public VideoCore::RendererBase {
@@ -53,17 +49,17 @@ private:
     vk::Instance instance;
     vk::SurfaceKHR surface;
 
-    VulkanScreenInfo screen_info;
+    VKScreenInfo screen_info;
 
-    std::unique_ptr<VulkanDevice> device_handler;
+    std::unique_ptr<VKDevice> device_handler;
     vk::Device device;
     vk::PhysicalDevice physical_device;
 
-    std::unique_ptr<VulkanSwapchain> swapchain;
-    std::unique_ptr<VulkanMemoryManager> memory_manager;
-    std::unique_ptr<VulkanResourceManager> resource_manager;
-    std::unique_ptr<VulkanScheduler> sched;
-    std::unique_ptr<VulkanBlitScreen> blit_screen;
+    std::unique_ptr<VKSwapchain> swapchain;
+    std::unique_ptr<VKMemoryManager> memory_manager;
+    std::unique_ptr<VKResourceManager> resource_manager;
+    std::unique_ptr<VKScheduler> sched;
+    std::unique_ptr<VKBlitScreen> blit_screen;
 
     vk::UniqueSemaphore present_semaphore;
 };

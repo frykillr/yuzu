@@ -8,15 +8,15 @@
 
 namespace Vulkan {
 
-VulkanImage::VulkanImage(vk::Device device, const vk::ImageCreateInfo& image_ci)
+VKImage::VKImage(vk::Device device, const vk::ImageCreateInfo& image_ci)
     : image(device.createImageUnique(image_ci)), format(image_ci.format),
       current_layout(image_ci.initialLayout) {}
 
-VulkanImage::~VulkanImage() = default;
+VKImage::~VKImage() = default;
 
-void VulkanImage::Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange subresource_range,
-                             vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
-                             vk::AccessFlags new_access, u32 new_family) {
+void VKImage::Transition(vk::CommandBuffer cmdbuf, vk::ImageSubresourceRange subresource_range,
+                         vk::ImageLayout new_layout, vk::PipelineStageFlags new_stage_mask,
+                         vk::AccessFlags new_access, u32 new_family) {
 
     const vk::ImageMemoryBarrier barrier(current_access, new_access, current_layout, new_layout,
                                          current_family, new_family, *image, subresource_range);

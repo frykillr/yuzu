@@ -15,24 +15,21 @@
 
 namespace Vulkan {
 
-VulkanBufferCache::VulkanBufferCache(RasterizerVulkan& rasterizer,
-                                     VulkanResourceManager& resource_manager,
-                                     VulkanDevice& device_handler,
-                                     VulkanMemoryManager& memory_manager, VulkanScheduler& sched,
-                                     u64 size)
+VKBufferCache::VKBufferCache(RasterizerVulkan& rasterizer, VKResourceManager& resource_manager,
+                             VKDevice& device_handler, VKMemoryManager& memory_manager,
+                             VKScheduler& sched, u64 size)
     : RasterizerCache{rasterizer} {
 
-    stream_buffer = std::make_unique<VulkanStreamBuffer>(
+    stream_buffer = std::make_unique<VKStreamBuffer>(
         resource_manager, device_handler, memory_manager, sched, size,
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
             vk::BufferUsageFlagBits::eUniformBuffer);
 }
 
-VulkanBufferCache::~VulkanBufferCache() = default;
+VKBufferCache::~VKBufferCache() = default;
 
-std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr,
-                                                            std::size_t size, u64 alignment,
-                                                            bool cache) {
+std::tuple<u64, vk::Buffer> VKBufferCache::UploadMemory(Tegra::GPUVAddr gpu_addr, std::size_t size,
+                                                        u64 alignment, bool cache) {
     auto& emu_memory_manager = Core::System::GetInstance().GPU().MemoryManager();
     const auto cpu_addr{emu_memory_manager.GpuToCpuAddress(gpu_addr)};
 
@@ -70,8 +67,8 @@ std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadMemory(Tegra::GPUVAddr gpu_
     return {uploaded_offset, buffer_handle};
 }
 
-std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadHostMemory(const u8* raw_pointer,
-                                                                std::size_t size, u64 alignment) {
+std::tuple<u64, vk::Buffer> VKBufferCache::UploadHostMemory(const u8* raw_pointer, std::size_t size,
+                                                            u64 alignment) {
     AlignBuffer(alignment);
     std::memcpy(buffer_ptr, raw_pointer, size);
     const u64 uploaded_offset = buffer_offset;
@@ -81,7 +78,7 @@ std::tuple<u64, vk::Buffer> VulkanBufferCache::UploadHostMemory(const u8* raw_po
     return {uploaded_offset, buffer_handle};
 }
 
-std::tuple<u8*, u64, vk::Buffer> VulkanBufferCache::ReserveMemory(std::size_t size, u64 alignment) {
+std::tuple<u8*, u64, vk::Buffer> VKBufferCache::ReserveMemory(std::size_t size, u64 alignment) {
     AlignBuffer(alignment);
     u8* const uploaded_ptr = buffer_ptr;
     const u64 uploaded_offset = buffer_offset;
@@ -91,7 +88,7 @@ std::tuple<u8*, u64, vk::Buffer> VulkanBufferCache::ReserveMemory(std::size_t si
     return {uploaded_ptr, uploaded_offset, buffer_handle};
 }
 
-void VulkanBufferCache::Reserve(std::size_t max_size) {
+void VKBufferCache::Reserve(std::size_t max_size) {
     bool invalidate;
     std::tie(buffer_ptr, buffer_offset_base, buffer_handle, invalidate) =
         stream_buffer->Reserve(max_size, false);
@@ -102,11 +99,11 @@ void VulkanBufferCache::Reserve(std::size_t max_size) {
     }
 }
 
-void VulkanBufferCache::Send(VulkanFence& fence, vk::CommandBuffer cmdbuf) {
+void VKBufferCache::Send(VKFence& fence, vk::CommandBuffer cmdbuf) {
     stream_buffer->Send(fence, cmdbuf, buffer_offset - buffer_offset_base);
 }
 
-void VulkanBufferCache::AlignBuffer(std::size_t alignment) {
+void VKBufferCache::AlignBuffer(std::size_t alignment) {
     // Align the offset, not the mapped pointer
     const u64 offset_aligned = Common::AlignUp(buffer_offset, alignment);
     buffer_ptr += offset_aligned - buffer_offset;

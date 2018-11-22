@@ -25,11 +25,58 @@ constexpr std::size_t OBJECTS_TO_DESTROY = 0x1000;
 
 using namespace Resource;
 
+class CommandBufferPool final : public VKFencedPool {
+public:
+    CommandBufferPool(vk::Device device, u32 graphics_family) {
+        InitStatic(COMMAND_BUFFERS_COUNT);
+
+        const vk::CommandPoolCreateInfo pool_ci(
+            vk::CommandPoolCreateFlagBits::eTransient |
+                vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+            graphics_family);
+        pool = device.createCommandPoolUnique(pool_ci);
+
+        const vk::CommandBufferAllocateInfo cmdbuf_ai(*pool, vk::CommandBufferLevel::ePrimary,
+                                                      COMMAND_BUFFERS_COUNT);
+        cmdbufs = device.allocateCommandBuffersUnique(cmdbuf_ai);
+    }
+    ~CommandBufferPool() = default;
+
+    vk::CommandBuffer Commit(VKFence& fence) {
+        return *cmdbufs[ResourceCommit(fence)];
+    }
+
+private:
+    vk::UniqueCommandPool pool;
+    std::vector<vk::UniqueCommandBuffer> cmdbufs;
+};
+
+class SemaphorePool final : public VKFencedPool {
+public:
+    explicit SemaphorePool(vk::Device device, u32 graphics_family) {
+        InitStatic(SEMAPHORES_COUNT);
+
+        semaphores.resize(SEMAPHORES_COUNT);
+        for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
+            const vk::SemaphoreCreateInfo semaphore_ci;
+            semaphores[i] = device.createSemaphoreUnique(semaphore_ci);
+        }
+    }
+    ~SemaphorePool() = default;
+
+    vk::Semaphore Commit(VKFence& fence) {
+        return *semaphores[ResourceCommit(fence)];
+    }
+
+private:
+    std::vector<vk::UniqueSemaphore> semaphores;
+};
+
 Base::Base() = default;
 
 Base::~Base() = default;
 
-Persistent::Persistent(VulkanResourceManager& resource_manager, vk::Device device)
+Persistent::Persistent(VKResourceManager& resource_manager, vk::Device device)
     : resource_manager(resource_manager), device(device) {
 
     const vk::SemaphoreCreateInfo semaphore_ci;
@@ -56,14 +103,14 @@ void Persistent::Wait() {
     }
 }
 
-vk::Semaphore Persistent::ReadProtect(VulkanFence& new_fence) {
+vk::Semaphore Persistent::ReadProtect(VKFence& new_fence) {
     new_fence.Protect(this);
     read_fences.push_back(&new_fence);
 
     return *write_semaphore;
 }
 
-vk::Semaphore Persistent::WriteProtect(VulkanFence& new_fence) {
+vk::Semaphore Persistent::WriteProtect(VKFence& new_fence) {
     Wait();
 
     // There's a bug if the resource is not free after waiting for all of its fences.
@@ -77,7 +124,7 @@ vk::Semaphore Persistent::WriteProtect(VulkanFence& new_fence) {
     return *write_semaphore;
 }
 
-void Persistent::OnFenceRemoval(VulkanFence* signaling_fence) {
+void Persistent::OnFenceRemoval(VKFence* signaling_fence) {
     if (write_fence == signaling_fence) {
         write_fence = nullptr;
     }
@@ -97,29 +144,29 @@ bool OneShot::IsSignaled() const {
     return is_signaled;
 }
 
-void OneShot::OnFenceRemoval(VulkanFence* signaling_fence) {
+void OneShot::OnFenceRemoval(VKFence* signaling_fence) {
     is_signaled = true;
 }
 
-VulkanFence::VulkanFence(vk::UniqueFence handle, vk::Device device)
+VKFence::VKFence(vk::UniqueFence handle, vk::Device device)
     : handle(std::move(handle)), device(device) {}
 
-VulkanFence::~VulkanFence() = default;
+VKFence::~VKFence() = default;
 
-void VulkanFence::Wait() {
-    device.waitForFences({*handle}, true, WaitTimeout);
+void VKFence::Wait() {
+    device.waitForFences({*handle}, true, WAIT_UNLIMITED);
 }
 
-void VulkanFence::Release() {
+void VKFence::Release() {
     is_owned = false;
 }
 
-void VulkanFence::Commit() {
+void VKFence::Commit() {
     is_owned = true;
     is_used = true;
 }
 
-bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
+bool VKFence::Tick(bool gpu_wait, bool owner_wait) {
     if (!is_used) {
         // If a fence is not used it's always free.
         return true;
@@ -131,7 +178,7 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
     }
     if (gpu_wait) {
         // Wait for the fence if it has been requested.
-        device.waitForFences({*handle}, true, WaitTimeout);
+        device.waitForFences({*handle}, true, WAIT_UNLIMITED);
     } else {
         // FIXME(Rodrigo): Check if vkGetFenceStatus is needed to be locked
         if (device.getFenceStatus(*handle) != vk::Result::eSuccess) {
@@ -152,26 +199,26 @@ bool VulkanFence::Tick(bool gpu_wait, bool owner_wait) {
     return true;
 }
 
-void VulkanFence::Protect(VulkanResource* resource) {
+void VKFence::Protect(VKResource* resource) {
     protected_resources.push_back(resource);
 }
 
-void VulkanFence::Unprotect(VulkanResource* resource) {
+void VKFence::Unprotect(VKResource* resource) {
     const auto it = std::find(protected_resources.begin(), protected_resources.end(), resource);
     if (it != protected_resources.end()) {
         protected_resources.erase(it);
     }
 }
 
-VulkanFenceWatch::VulkanFenceWatch() = default;
+VKFenceWatch::VKFenceWatch() = default;
 
-VulkanFenceWatch::~VulkanFenceWatch() {
+VKFenceWatch::~VKFenceWatch() {
     if (fence) {
         fence->Unprotect(this);
     }
 }
 
-void VulkanFenceWatch::Wait() {
+void VKFenceWatch::Wait() {
     if (!fence) {
         return;
     }
@@ -180,13 +227,13 @@ void VulkanFenceWatch::Wait() {
     fence = nullptr;
 }
 
-void VulkanFenceWatch::Watch(VulkanFence& new_fence) {
+void VKFenceWatch::Watch(VKFence& new_fence) {
     Wait();
     fence = &new_fence;
     fence->Protect(this);
 }
 
-bool VulkanFenceWatch::TryWatch(VulkanFence& new_fence) {
+bool VKFenceWatch::TryWatch(VKFence& new_fence) {
     if (fence) {
         return false;
     }
@@ -195,32 +242,32 @@ bool VulkanFenceWatch::TryWatch(VulkanFence& new_fence) {
     return true;
 }
 
-void VulkanFenceWatch::OnFenceRemoval(VulkanFence* signaling_fence) {
+void VKFenceWatch::OnFenceRemoval(VKFence* signaling_fence) {
     ASSERT(signaling_fence == fence);
     fence = nullptr;
 }
 
-VulkanFencedPool::VulkanFencedPool() = default;
+VKFencedPool::VKFencedPool() = default;
 
-VulkanFencedPool::~VulkanFencedPool() = default;
+VKFencedPool::~VKFencedPool() = default;
 
-void VulkanFencedPool::InitResizable(std::size_t initial_capacity, std::size_t grow_step) {
+void VKFencedPool::InitResizable(std::size_t initial_capacity, std::size_t grow_step) {
     does_allocation = true;
     this->grow_step = grow_step;
     Grow(initial_capacity);
 }
 
-void VulkanFencedPool::InitStatic(std::size_t capacity) {
+void VKFencedPool::InitStatic(std::size_t capacity) {
     grow_step = 0;
     does_allocation = false;
     Grow(capacity);
 }
 
-void VulkanFencedPool::Allocate(std::size_t begin, std::size_t end) {
+void VKFencedPool::Allocate(std::size_t begin, std::size_t end) {
     UNREACHABLE_MSG("Trying to allocate without an alloc implementation.");
 }
 
-std::size_t VulkanFencedPool::ResourceCommit(VulkanFence& fence) {
+std::size_t VKFencedPool::ResourceCommit(VKFence& fence) {
     const auto Search = [&](std::size_t begin, std::size_t end) -> std::optional<std::size_t> {
         for (std::size_t iterator = begin; iterator < end; ++iterator) {
             if (watches[iterator]->TryWatch(fence)) {
@@ -249,7 +296,7 @@ std::size_t VulkanFencedPool::ResourceCommit(VulkanFence& fence) {
     return *found;
 }
 
-std::size_t VulkanFencedPool::HandleFullPool() {
+std::size_t VKFencedPool::HandleFullPool() {
     if (!does_allocation) {
         // This pool doesn't allocate, just wait for a resource to be free.
         return free_iterator;
@@ -262,75 +309,28 @@ std::size_t VulkanFencedPool::HandleFullPool() {
     return old_capacity;
 }
 
-void VulkanFencedPool::Grow(std::size_t new_entries) {
+void VKFencedPool::Grow(std::size_t new_entries) {
     if (new_entries == 0) {
         return;
     }
     const auto old_capacity = watches.size();
     watches.resize(old_capacity + new_entries);
     std::generate(watches.begin() + old_capacity, watches.end(),
-                  []() { return std::make_unique<VulkanFenceWatch>(); });
+                  []() { return std::make_unique<VKFenceWatch>(); });
     if (does_allocation) {
         Allocate(old_capacity, old_capacity + new_entries);
     }
 }
 
-class VulkanCommandBufferPool final : public VulkanFencedPool {
-public:
-    VulkanCommandBufferPool(vk::Device device, u32 graphics_family) {
-        InitStatic(COMMAND_BUFFERS_COUNT);
-
-        const vk::CommandPoolCreateInfo pool_ci(
-            vk::CommandPoolCreateFlagBits::eTransient |
-                vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            graphics_family);
-        pool = device.createCommandPoolUnique(pool_ci);
-
-        const vk::CommandBufferAllocateInfo cmdbuf_ai(*pool, vk::CommandBufferLevel::ePrimary,
-                                                      COMMAND_BUFFERS_COUNT);
-        cmdbufs = device.allocateCommandBuffersUnique(cmdbuf_ai);
-    }
-    ~VulkanCommandBufferPool() = default;
-
-    vk::CommandBuffer Commit(VulkanFence& fence) {
-        return *cmdbufs[ResourceCommit(fence)];
-    }
-
-private:
-    vk::UniqueCommandPool pool;
-    std::vector<vk::UniqueCommandBuffer> cmdbufs;
-};
-
-class VulkanSemaphorePool final : public VulkanFencedPool {
-public:
-    explicit VulkanSemaphorePool(vk::Device device, u32 graphics_family) {
-        InitStatic(SEMAPHORES_COUNT);
-
-        semaphores.resize(SEMAPHORES_COUNT);
-        for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
-            const vk::SemaphoreCreateInfo semaphore_ci;
-            semaphores[i] = device.createSemaphoreUnique(semaphore_ci);
-        }
-    }
-    ~VulkanSemaphorePool() = default;
-
-    vk::Semaphore Commit(VulkanFence& fence) {
-        return *semaphores[ResourceCommit(fence)];
-    }
-
-private:
-    std::vector<vk::UniqueSemaphore> semaphores;
-};
-
-VulkanResourceManager::VulkanResourceManager(const VulkanDevice& device_handler)
+VKResourceManager::VKResourceManager(const VKDevice& device_handler)
     : device(device_handler.GetLogical()), graphics_family(device_handler.GetGraphicsFamily()) {
 
     GrowFences(FENCES_COUNT);
-    command_buffer_pool = std::make_unique<VulkanCommandBufferPool>(device, graphics_family);
-    semaphore_pool = std::make_unique<VulkanSemaphorePool>(device, graphics_family);
+    command_buffer_pool = std::make_unique<CommandBufferPool>(device, graphics_family);
+    semaphore_pool = std::make_unique<SemaphorePool>(device, graphics_family);
 }
 
-VulkanResourceManager::~VulkanResourceManager() {
+VKResourceManager::~VKResourceManager() {
     // There may be owned fences here (e.g. present fences), forcefully release them. It's safe
     // on the GPU perspective since device must be idle before destroying the resource manager.
     std::for_each(fences.begin(), fences.end(), [](auto& fence) {
@@ -339,8 +339,8 @@ VulkanResourceManager::~VulkanResourceManager() {
     });
 }
 
-VulkanFence& VulkanResourceManager::CommitFence() {
-    const auto StepFences = [&](bool gpu_wait, bool owner_wait) -> VulkanFence* {
+VKFence& VKResourceManager::CommitFence() {
+    const auto StepFences = [&](bool gpu_wait, bool owner_wait) -> VKFence* {
         const auto Tick = [=](auto& fence) { return fence->Tick(gpu_wait, owner_wait); };
         const auto hinted = fences.begin() + fences_iterator;
 
@@ -360,7 +360,7 @@ VulkanFence& VulkanResourceManager::CommitFence() {
         return fence.get();
     };
 
-    VulkanFence* found_fence = StepFences(false, false);
+    VKFence* found_fence = StepFences(false, false);
     if (!found_fence) {
         // Try again, this time waiting.
         found_fence = StepFences(true, false);
@@ -378,49 +378,49 @@ VulkanFence& VulkanResourceManager::CommitFence() {
     return *found_fence;
 }
 
-vk::CommandBuffer VulkanResourceManager::CommitCommandBuffer(VulkanFence& fence) {
+vk::CommandBuffer VKResourceManager::CommitCommandBuffer(VKFence& fence) {
     return command_buffer_pool->Commit(fence);
 }
 
-vk::Semaphore VulkanResourceManager::CommitSemaphore(VulkanFence& fence) {
+vk::Semaphore VKResourceManager::CommitSemaphore(VKFence& fence) {
     return semaphore_pool->Commit(fence);
 }
 
-vk::RenderPass VulkanResourceManager::CreateRenderPass(
-    VulkanFence& fence, const vk::RenderPassCreateInfo& renderpass_ci) {
+vk::RenderPass VKResourceManager::CreateRenderPass(VKFence& fence,
+                                                   const vk::RenderPassCreateInfo& renderpass_ci) {
 
     return CreateOneShot(fence, renderpasses, device.createRenderPassUnique(renderpass_ci));
 }
 
-vk::ImageView VulkanResourceManager::CreateImageView(VulkanFence& fence,
-                                                     const vk::ImageViewCreateInfo& image_view_ci) {
+vk::ImageView VKResourceManager::CreateImageView(VKFence& fence,
+                                                 const vk::ImageViewCreateInfo& image_view_ci) {
     return CreateOneShot(fence, image_views, device.createImageViewUnique(image_view_ci));
 }
 
-vk::Framebuffer VulkanResourceManager::CreateFramebuffer(
-    VulkanFence& fence, const vk::FramebufferCreateInfo& framebuffer_ci) {
+vk::Framebuffer VKResourceManager::CreateFramebuffer(
+    VKFence& fence, const vk::FramebufferCreateInfo& framebuffer_ci) {
 
     return CreateOneShot(fence, framebuffers, device.createFramebufferUnique(framebuffer_ci));
 }
 
-vk::Pipeline VulkanResourceManager::CreateGraphicsPipeline(
-    VulkanFence& fence, const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci) {
+vk::Pipeline VKResourceManager::CreateGraphicsPipeline(
+    VKFence& fence, const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci) {
 
     return CreateOneShot(fence, pipelines,
                          device.createGraphicsPipelineUnique({}, graphics_pipeline_ci));
 }
 
-vk::PipelineLayout VulkanResourceManager::CreatePipelineLayout(
-    VulkanFence& fence, const vk::PipelineLayoutCreateInfo& pipeline_layout_ci) {
+vk::PipelineLayout VKResourceManager::CreatePipelineLayout(
+    VKFence& fence, const vk::PipelineLayoutCreateInfo& pipeline_layout_ci) {
 
     return CreateOneShot(fence, pipeline_layouts,
                          device.createPipelineLayoutUnique(pipeline_layout_ci));
 }
 
 template <typename EntryType, typename HandleType>
-HandleType VulkanResourceManager::CreateOneShot(VulkanFence& fence,
-                                                std::vector<std::unique_ptr<EntryType>>& vector,
-                                                vk::UniqueHandle<HandleType> handle) {
+HandleType VKResourceManager::CreateOneShot(VKFence& fence,
+                                            std::vector<std::unique_ptr<EntryType>>& vector,
+                                            vk::UniqueHandle<HandleType> handle) {
     TickCreations();
 
     const auto handle_value = *handle;
@@ -430,7 +430,7 @@ HandleType VulkanResourceManager::CreateOneShot(VulkanFence& fence,
     return handle_value;
 }
 
-void VulkanResourceManager::TickCreations() {
+void VKResourceManager::TickCreations() {
     if (++tick_creations < TICKS_TO_DESTROY) {
         return;
     }
@@ -442,21 +442,21 @@ void VulkanResourceManager::TickCreations() {
 }
 
 template <typename T>
-void VulkanResourceManager::RemoveEntries(std::vector<T>& entries) {
+void VKResourceManager::RemoveEntries(std::vector<T>& entries) {
     const auto end = entries.begin() + std::min(OBJECTS_TO_DESTROY, entries.size());
     entries.erase(
         std::remove_if(entries.begin(), end, [](const auto& entry) { return entry->IsSignaled(); }),
         end);
 }
 
-void VulkanResourceManager::GrowFences(std::size_t new_fences_count) {
+void VKResourceManager::GrowFences(std::size_t new_fences_count) {
     const vk::FenceCreateInfo fence_ci;
 
     const std::size_t previous_size = fences.size();
     fences.resize(previous_size + new_fences_count);
 
     std::generate(fences.begin() + previous_size, fences.end(), [&]() {
-        return std::make_unique<VulkanFence>(device.createFenceUnique(fence_ci), device);
+        return std::make_unique<VKFence>(device.createFenceUnique(fence_ci), device);
     });
 }
 

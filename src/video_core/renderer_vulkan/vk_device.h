@@ -11,10 +11,10 @@
 
 namespace Vulkan {
 
-class VulkanDevice final {
+class VKDevice final {
 public:
-    explicit VulkanDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
-    ~VulkanDevice();
+    explicit VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer);
+    ~VKDevice();
 
     bool CreateLogical();
 
@@ -63,8 +63,8 @@ private:
     vk::Device logical{};
     vk::Queue graphics_queue{};
     vk::Queue present_queue{};
-    u32 graphics_family = UndefinedFamily;
-    u32 present_family = UndefinedFamily;
+    u32 graphics_family = UNDEFINED_FAMILY;
+    u32 present_family = UNDEFINED_FAMILY;
     vk::PhysicalDeviceType device_type{};
     u64 uniform_buffer_alignment;
 

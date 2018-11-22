@@ -18,8 +18,8 @@
 namespace Vulkan {
 
 class RasterizerVulkan;
-class VulkanDevice;
-class VulkanFence;
+class VKDevice;
+class VKFence;
 
 class CachedShader;
 using Shader = std::shared_ptr<CachedShader>;
@@ -194,10 +194,10 @@ struct Pipeline {
 
 class CachedShader final : public RasterizerCacheObject {
 public:
-    CachedShader(VulkanDevice& device_handler, VAddr addr, Maxwell::ShaderProgram program_type);
+    CachedShader(VKDevice& device_handler, VAddr addr, Maxwell::ShaderProgram program_type);
 
     /// Gets a descriptor set from the internal pool.
-    vk::DescriptorSet CommitDescriptorSet(VulkanFence& fence);
+    vk::DescriptorSet CommitDescriptorSet(VKFence& fence);
 
     VAddr GetAddr() const override {
         return addr;
@@ -244,9 +244,9 @@ private:
     std::unique_ptr<DescriptorPool> descriptor_pool;
 };
 
-class VulkanShaderCache final : public RasterizerCache<Shader> {
+class VKShaderCache final : public RasterizerCache<Shader> {
 public:
-    explicit VulkanShaderCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler);
+    explicit VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler);
 
     Pipeline GetPipeline(const PipelineParams& params);
 
@@ -271,7 +271,7 @@ private:
         }
     };
 
-    VulkanDevice& device_handler;
+    VKDevice& device_handler;
     const vk::Device device;
 
     vk::UniquePipelineLayout CreatePipelineLayout(const PipelineParams& params,

@@ -10,37 +10,38 @@
 
 namespace Vulkan {
 
-VulkanDevice::VulkanDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer)
+VKDevice::VKDevice(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer)
     : physical(physical), is_renderer(is_renderer) {
 
-    int i = 0;
-    for (const auto& queue_family : physical.getQueueFamilyProperties()) {
+    const auto queue_family_properties = physical.getQueueFamilyProperties();
+    for (u32 i = 0; i < static_cast<u32>(queue_family_properties.size()); ++i) {
+        if (graphics_family != UNDEFINED_FAMILY && present_family != UNDEFINED_FAMILY)
+            break;
+
+        const auto& queue_family = queue_family_properties[i];
         if (queue_family.queueCount == 0) {
-            ++i;
             continue;
         }
-        if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics) {
+
+        if (queue_family.queueFlags & vk::QueueFlagBits::eGraphics)
             graphics_family = i;
-        }
-        if (physical.getSurfaceSupportKHR(i, surface)) {
+        if (physical.getSurfaceSupportKHR(i, surface))
             present_family = i;
-        }
     }
-    ASSERT(graphics_family != UndefinedFamily && present_family != UndefinedFamily);
+    ASSERT(graphics_family != UNDEFINED_FAMILY && present_family != UNDEFINED_FAMILY);
 
     const vk::PhysicalDeviceProperties props = physical.getProperties();
     device_type = props.deviceType;
-
     uniform_buffer_alignment = props.limits.minUniformBufferOffsetAlignment;
 }
 
-VulkanDevice::~VulkanDevice() {
+VKDevice::~VKDevice() {
     if (logical) {
         logical.destroy();
     }
 }
 
-bool VulkanDevice::CreateLogical() {
+bool VKDevice::CreateLogical() {
     const auto queue_cis = GetDeviceQueueCreateInfos();
     vk::PhysicalDeviceFeatures device_features{};
 
@@ -53,7 +54,7 @@ bool VulkanDevice::CreateLogical() {
                                    nullptr, static_cast<u32>(extensions.size()), extensions.data(),
                                    &device_features);
     if (physical.createDevice(&device_ci, nullptr, &logical) != vk::Result::eSuccess) {
-        LOG_CRITICAL(Render_Vulkan, "Logical device_handler failed to be created!");
+        LOG_CRITICAL(Render_Vulkan, "Logical device failed to be created!");
         return false;
     }
 
@@ -62,8 +63,7 @@ bool VulkanDevice::CreateLogical() {
     return true;
 }
 
-bool VulkanDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface,
-                              bool is_renderer) {
+bool VKDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surface, bool is_renderer) {
     bool has_swapchain{};
     const std::string swapchain_extension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     for (const vk::ExtensionProperties& prop : physical.enumerateDeviceExtensionProperties()) {
@@ -106,7 +106,7 @@ bool VulkanDevice::IsSuitable(vk::PhysicalDevice physical, vk::SurfaceKHR surfac
     return true;
 }
 
-std::vector<vk::DeviceQueueCreateInfo> VulkanDevice::GetDeviceQueueCreateInfos() const {
+std::vector<vk::DeviceQueueCreateInfo> VKDevice::GetDeviceQueueCreateInfos() const {
     static const float QUEUE_PRIORITY = 1.f;
 
     std::vector<vk::DeviceQueueCreateInfo> queue_cis;

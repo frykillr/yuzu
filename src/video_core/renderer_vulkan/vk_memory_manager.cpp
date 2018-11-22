@@ -14,16 +14,14 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 
-#pragma optimize("", off)
-
 namespace Vulkan {
 
 constexpr u64 ALLOC_CHUNK_SIZE = 64 * 1024 * 1024;
 
-class VulkanMemoryAllocation final {
+class VKMemoryAllocation final {
 public:
-    explicit VulkanMemoryAllocation(vk::Device device, vk::DeviceMemory memory,
-                                    vk::MemoryPropertyFlags properties, u64 alloc_size, u32 type)
+    explicit VKMemoryAllocation(vk::Device device, vk::DeviceMemory memory,
+                                vk::MemoryPropertyFlags properties, u64 alloc_size, u32 type)
         : device(device), memory(memory), properties(properties), alloc_size(alloc_size),
           shifted_type(ShiftType(type)),
           is_mappeable(properties & vk::MemoryPropertyFlagBits::eHostVisible) {
@@ -33,14 +31,14 @@ public:
         }
     }
 
-    ~VulkanMemoryAllocation() {
+    ~VKMemoryAllocation() {
         if (is_mappeable) {
             device.unmapMemory(memory);
         }
         device.free(memory);
     }
 
-    const VulkanMemoryCommit* Commit(vk::DeviceSize commit_size, vk::DeviceSize alignment) {
+    const VKMemoryCommit* Commit(vk::DeviceSize commit_size, vk::DeviceSize alignment) {
         auto found = TryFindFreeSection(free_iterator, alloc_size, static_cast<u64>(commit_size),
                                         static_cast<u64>(alignment));
         if (!found) {
@@ -52,8 +50,8 @@ public:
             }
         }
         u8* address = is_mappeable ? base_address + *found : nullptr;
-        auto commit = std::make_unique<VulkanMemoryCommit>(this, memory, address, *found,
-                                                           *found + commit_size);
+        auto commit =
+            std::make_unique<VKMemoryCommit>(this, memory, address, *found, *found + commit_size);
         const auto* commit_ptr = commit.get();
         commits.push_back(std::move(commit));
 
@@ -63,7 +61,7 @@ public:
         return commit_ptr;
     }
 
-    void Free(const VulkanMemoryCommit* commit) {
+    void Free(const VKMemoryCommit* commit) {
         ASSERT(commit);
         const auto it =
             std::find_if(commits.begin(), commits.end(),
@@ -118,31 +116,31 @@ private:
     u8* base_address{};
 
     u64 free_iterator{};
-    std::vector<std::unique_ptr<VulkanMemoryCommit>> commits;
+    std::vector<std::unique_ptr<VKMemoryCommit>> commits;
 };
 
-VulkanMemoryCommit::VulkanMemoryCommit(VulkanMemoryAllocation* allocation, vk::DeviceMemory memory,
-                                       u8* data, u64 begin, u64 end)
+VKMemoryCommit::VKMemoryCommit(VKMemoryAllocation* allocation, vk::DeviceMemory memory, u8* data,
+                               u64 begin, u64 end)
     : allocation(allocation), memory(memory), data(data),
       interval(std::make_pair(begin, begin + end)) {}
 
-VulkanMemoryCommit::~VulkanMemoryCommit() = default;
+VKMemoryCommit::~VKMemoryCommit() = default;
 
-VulkanMemoryManager::VulkanMemoryManager(const VulkanDevice& device_handler)
+VKMemoryManager::VKMemoryManager(const VKDevice& device_handler)
     : device(device_handler.GetLogical()), physical_device(device_handler.GetPhysical()),
       props(device_handler.GetPhysical().getMemoryProperties()),
       is_memory_unified(GetMemoryUnified(props)) {}
 
-VulkanMemoryManager::~VulkanMemoryManager() = default;
+VKMemoryManager::~VKMemoryManager() = default;
 
-const VulkanMemoryCommit* VulkanMemoryManager::Commit(const vk::MemoryRequirements& reqs,
-                                                      bool host_visible) {
+const VKMemoryCommit* VKMemoryManager::Commit(const vk::MemoryRequirements& reqs,
+                                              bool host_visible) {
     const vk::MemoryPropertyFlags wanted_properties =
         host_visible
             ? vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
             : vk::MemoryPropertyFlagBits::eDeviceLocal;
 
-    auto TryCommit = [&]() -> const VulkanMemoryCommit* {
+    auto TryCommit = [&]() -> const VKMemoryCommit* {
         for (auto& alloc : allocs) {
             if (!alloc->IsCompatible(wanted_properties, reqs.memoryTypeBits)) {
                 continue;
@@ -169,15 +167,13 @@ const VulkanMemoryCommit* VulkanMemoryManager::Commit(const vk::MemoryRequiremen
     return commit;
 }
 
-void VulkanMemoryManager::Free(const VulkanMemoryCommit* commit) {
-    if (commit == nullptr) {
-        return;
-    }
-    commit->allocation->Free(commit);
+void VKMemoryManager::Free(const VKMemoryCommit* commit) {
+    if (commit != nullptr)
+        commit->allocation->Free(commit);
 }
 
-bool VulkanMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32 type_mask,
-                                      u64 size) {
+bool VKMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties, u32 type_mask,
+                                  u64 size) {
     const u32 type = [&]() {
         for (u32 type_index = 0; type_index < props.memoryTypeCount; ++type_index) {
             const auto type = props.memoryTypes[type_index];
@@ -206,12 +202,11 @@ bool VulkanMemoryManager::AllocMemory(vk::MemoryPropertyFlags wanted_properties,
     }
 
     allocs.push_back(
-        std::make_unique<VulkanMemoryAllocation>(device, memory, wanted_properties, size, type));
+        std::make_unique<VKMemoryAllocation>(device, memory, wanted_properties, size, type));
     return true;
 }
 
-/*static*/ bool VulkanMemoryManager::GetMemoryUnified(
-    const vk::PhysicalDeviceMemoryProperties& props) {
+/*static*/ bool VKMemoryManager::GetMemoryUnified(const vk::PhysicalDeviceMemoryProperties& props) {
 
     for (u32 heap_index = 0; heap_index < props.memoryHeapCount; ++heap_index) {
         if (!(props.memoryHeaps[heap_index].flags & vk::MemoryHeapFlagBits::eDeviceLocal)) {

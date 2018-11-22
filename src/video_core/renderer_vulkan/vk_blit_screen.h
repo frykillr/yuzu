@@ -24,26 +24,25 @@ namespace Vulkan {
 
 struct ScreenInfo;
 class RasterizerVulkan;
-class VulkanDevice;
-class VulkanFence;
-class VulkanMemoryCommit;
-class VulkanMemoryManager;
-class VulkanSwapchain;
-class VulkanScheduler;
-class VulkanImage;
+class VKDevice;
+class VKFence;
+class VKMemoryCommit;
+class VKMemoryManager;
+class VKSwapchain;
+class VKScheduler;
+class VKImage;
 
-class VulkanBlitScreen final {
+class VKBlitScreen final {
 public:
-    explicit VulkanBlitScreen(Core::Frontend::EmuWindow& render_window,
-                              VulkanDevice& device_handler, VulkanResourceManager& resource_manager,
-                              VulkanMemoryManager& memory_manager, VulkanSwapchain& swapchain,
-                              VulkanScreenInfo& screen_info);
-    ~VulkanBlitScreen();
+    explicit VKBlitScreen(Core::Frontend::EmuWindow& render_window, VKDevice& device_handler,
+                          VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
+                          VKSwapchain& swapchain, VKScreenInfo& screen_info);
+    ~VKBlitScreen();
 
     void Recreate();
 
-    VulkanFence& Draw(VideoCore::RasterizerInterface& rasterizer, VulkanScheduler& sched,
-                      const Tegra::FramebufferConfig& framebuffer);
+    VKFence& Draw(VideoCore::RasterizerInterface& rasterizer, VKScheduler& sched,
+                  const Tegra::FramebufferConfig& framebuffer);
 
 private:
     void CreateShaders();
@@ -68,11 +67,11 @@ private:
 
     Core::Frontend::EmuWindow& render_window;
     const vk::Device device;
-    VulkanResourceManager& resource_manager;
-    VulkanMemoryManager& memory_manager;
-    VulkanSwapchain& swapchain;
+    VKResourceManager& resource_manager;
+    VKMemoryManager& memory_manager;
+    VKSwapchain& swapchain;
     const u32 image_count;
-    VulkanScreenInfo& screen_info;
+    VKScreenInfo& screen_info;
 
     vk::UniqueShaderModule vertex_shader;
     vk::UniqueShaderModule fragment_shader;
@@ -86,12 +85,12 @@ private:
     vk::UniqueSampler sampler;
 
     vk::UniqueBuffer buffer;
-    const VulkanMemoryCommit* buffer_commit{};
+    const VKMemoryCommit* buffer_commit{};
 
-    std::vector<std::unique_ptr<VulkanFenceWatch>> watches;
+    std::vector<std::unique_ptr<VKFenceWatch>> watches;
 
-    std::vector<std::unique_ptr<VulkanImage>> raw_images;
-    std::vector<const VulkanMemoryCommit*> raw_buffer_commits;
+    std::vector<std::unique_ptr<VKImage>> raw_images;
+    std::vector<const VKMemoryCommit*> raw_buffer_commits;
     u32 raw_width{}, raw_height{};
 };
 
