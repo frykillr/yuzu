@@ -9,12 +9,13 @@
 #include <tuple>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
-#include "video_core/rasterizer_cache.h"
 #include "video_core/gpu.h"
+#include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
 
 namespace Vulkan {
 
+class RasterizerVulkan;
 class VulkanResourceManager;
 class VulkanDevice;
 class VulkanMemoryManager;
@@ -42,7 +43,8 @@ struct CachedBufferEntry final : public RasterizerCacheObject {
 
 class VulkanBufferCache final : public RasterizerCache<std::shared_ptr<CachedBufferEntry>> {
 public:
-    explicit VulkanBufferCache(VulkanResourceManager& resource_manager,
+    explicit VulkanBufferCache(RasterizerVulkan& rasterizer,
+                               VulkanResourceManager& resource_manager,
                                VulkanDevice& device_handler, VulkanMemoryManager& memory_manager,
                                VulkanScheduler& sched, u64 size);
     ~VulkanBufferCache();

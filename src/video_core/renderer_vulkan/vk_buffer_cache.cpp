@@ -10,16 +10,18 @@
 #include "core/core.h"
 #include "core/memory.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_stream_buffer.h"
-
-#pragma optimize("", off)
 
 namespace Vulkan {
 
-VulkanBufferCache::VulkanBufferCache(VulkanResourceManager& resource_manager,
+VulkanBufferCache::VulkanBufferCache(RasterizerVulkan& rasterizer,
+                                     VulkanResourceManager& resource_manager,
                                      VulkanDevice& device_handler,
                                      VulkanMemoryManager& memory_manager, VulkanScheduler& sched,
-                                     u64 size) {
+                                     u64 size)
+    : RasterizerCache{rasterizer} {
+
     stream_buffer = std::make_unique<VulkanStreamBuffer>(
         resource_manager, device_handler, memory_manager, sched, size,
         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |

@@ -22,6 +22,7 @@
 
 namespace Vulkan {
 
+class RasterizerVulkan;
 class VulkanDevice;
 class VulkanResourceManager;
 class VulkanMemoryManager;
@@ -175,7 +176,7 @@ namespace Vulkan {
 
 class VulkanRasterizerCache final : public RasterizerCache<Surface> {
 public:
-    explicit VulkanRasterizerCache(VulkanDevice& device_handler,
+    explicit VulkanRasterizerCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler,
                                    VulkanResourceManager& resource_manager,
                                    VulkanMemoryManager& memory_manager);
     ~VulkanRasterizerCache();

@@ -11,6 +11,7 @@
 #include "core/memory.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
@@ -162,8 +163,9 @@ void CachedShader::CreateDescriptorPool() {
     descriptor_pool = std::make_unique<DescriptorPool>(device, pool_sizes, *descriptor_set_layout);
 }
 
-VulkanShaderCache::VulkanShaderCache(VulkanDevice& device_handler)
-    : device_handler(device_handler), device(device_handler.GetLogical()) {}
+VulkanShaderCache::VulkanShaderCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler)
+    : RasterizerCache{rasterizer},
+      device_handler{device_handler}, device{device_handler.GetLogical()} {}
 
 Pipeline VulkanShaderCache::GetPipeline(const PipelineParams& params) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();

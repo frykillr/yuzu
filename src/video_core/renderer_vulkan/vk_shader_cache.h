@@ -17,6 +17,7 @@
 
 namespace Vulkan {
 
+class RasterizerVulkan;
 class VulkanDevice;
 class VulkanFence;
 
@@ -245,7 +246,7 @@ private:
 
 class VulkanShaderCache final : public RasterizerCache<Shader> {
 public:
-    explicit VulkanShaderCache(VulkanDevice& device_handler);
+    explicit VulkanShaderCache(RasterizerVulkan& rasterizer, VulkanDevice& device_handler);
 
     Pipeline GetPipeline(const PipelineParams& params);
 

@@ -91,7 +91,7 @@ public:
     /// Invalidates everything in the cache
     void InvalidateAll() {
         while (interval_cache.begin() != interval_cache.end()) {
-            auto& object = *object_cache.begin()->second.begin();
+            auto& object = *interval_cache.begin()->second.begin();
             ObjectInvalidated(object);
             Unregister(object);
         }

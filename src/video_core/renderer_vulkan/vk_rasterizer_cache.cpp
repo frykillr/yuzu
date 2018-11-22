@@ -11,11 +11,10 @@
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
+#include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/surface.h"
 #include "video_core/utils.h"
-
-#pragma optimize("", off)
 
 namespace Vulkan {
 
@@ -225,11 +224,12 @@ void CachedSurface::UploadVKTexture() {
     UNIMPLEMENTED();
 }
 
-VulkanRasterizerCache::VulkanRasterizerCache(VulkanDevice& device_handler,
+VulkanRasterizerCache::VulkanRasterizerCache(RasterizerVulkan& rasterizer,
+                                             VulkanDevice& device_handler,
                                              VulkanResourceManager& resource_manager,
                                              VulkanMemoryManager& memory_manager)
-    : device_handler(device_handler), resource_manager(resource_manager),
-      memory_manager(memory_manager) {}
+    : RasterizerCache{rasterizer}, device_handler{device_handler},
+      resource_manager{resource_manager}, memory_manager{memory_manager} {}
 
 VulkanRasterizerCache::~VulkanRasterizerCache() = default;
 

@@ -18,8 +18,8 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_shader_cache.h"
 
 namespace Vulkan {
 
@@ -109,9 +109,9 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer,
       uniform_buffer_alignment(device_handler.GetUniformBufferAlignment()) {
 
     res_cache =
-        std::make_unique<VulkanRasterizerCache>(device_handler, resource_manager, memory_manager);
-    shader_cache = std::make_unique<VulkanShaderCache>(device_handler);
-    buffer_cache = std::make_unique<VulkanBufferCache>(resource_manager, device_handler,
+        std::make_unique<VulkanRasterizerCache>(*this, device_handler, resource_manager, memory_manager);
+    shader_cache = std::make_unique<VulkanShaderCache>(*this, device_handler);
+    buffer_cache = std::make_unique<VulkanBufferCache>(*this, resource_manager, device_handler,
                                                        memory_manager, sched, STREAM_BUFFER_SIZE);
 }
 

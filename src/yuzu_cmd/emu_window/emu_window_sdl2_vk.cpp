@@ -22,10 +22,10 @@ static VkBool32 DebugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTy
         LOG_ERROR(Render_Vulkan, "{}", message);
         UNREACHABLE();
     } else if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
-        LOG_WARNING(Render_Vulkan, message);
+        LOG_WARNING(Render_Vulkan, "{}", message);
     } else if (flags &
                (VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT)) {
-        LOG_DEBUG(Render_Vulkan, message);
+        LOG_DEBUG(Render_Vulkan, "{}", message);
     } else if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
         LOG_TRACE(Render_Vulkan, "{}", message);
     }
@@ -92,17 +92,8 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(bool fullscreen) : EmuWindow_SDL2(fullscree
         callback_ci.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
         callback_ci.pfnCallback = DebugCallback;
         callback_ci.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT |
-<<<<<<< HEAD
-<<<<<<< HEAD
                             VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
                             VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-=======
-                            VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
->>>>>>> vulkan: Initial implementation
-=======
-                            VK_DEBUG_REPORT_DEBUG_BIT_EXT | VK_DEBUG_REPORT_INFORMATION_BIT_EXT |
-                            VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
->>>>>>> vulkan: Fixup logging
 
         vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
 
