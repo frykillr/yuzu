@@ -154,7 +154,7 @@ VKFence::VKFence(vk::UniqueFence handle, vk::Device device)
 VKFence::~VKFence() = default;
 
 void VKFence::Wait() {
-    device.waitForFences({*handle}, true, WAIT_UNLIMITED);
+    device.waitForFences({*handle}, true, std::numeric_limits<u64>::max());
 }
 
 void VKFence::Release() {
@@ -178,7 +178,7 @@ bool VKFence::Tick(bool gpu_wait, bool owner_wait) {
     }
     if (gpu_wait) {
         // Wait for the fence if it has been requested.
-        device.waitForFences({*handle}, true, WAIT_UNLIMITED);
+        device.waitForFences({*handle}, true, std::numeric_limits<u64>::max());
     } else {
         // FIXME(Rodrigo): Check if vkGetFenceStatus is needed to be locked
         if (device.getFenceStatus(*handle) != vk::Result::eSuccess) {

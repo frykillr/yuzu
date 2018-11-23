@@ -7,7 +7,6 @@
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include "common/common_types.h"
-#include "video_core/renderer_vulkan/vk_helper.h"
 
 namespace Vulkan {
 

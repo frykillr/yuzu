@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <array>
+#include <limits>
 #include <vulkan/vulkan.hpp>
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -38,6 +39,8 @@ static vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentMod
 
 static vk::Extent2D ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities, u32 width,
                                      u32 height) {
+    constexpr auto UNDEFINED_SIZE = std::numeric_limits<u32>::max();
+
     if (capabilities.currentExtent.width != UNDEFINED_SIZE) {
         return capabilities.currentExtent;
     }
@@ -77,7 +80,8 @@ void VKSwapchain::Create(u32 width, u32 height) {
 }
 
 void VKSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
-    device.acquireNextImageKHR(*handle, WAIT_UNLIMITED, present_complete, {}, &image_index);
+    device.acquireNextImageKHR(*handle, std::numeric_limits<u64>::max(), present_complete, {},
+                               &image_index);
 
     if (auto& fence = fences[image_index]; fence) {
         fence->Wait();

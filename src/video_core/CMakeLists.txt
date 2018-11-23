@@ -103,9 +103,7 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_image.cpp
         renderer_vulkan/vk_image.h
         renderer_vulkan/vk_memory_manager.cpp
-        renderer_vulkan/vk_memory_manager.h
-        renderer_vulkan/vk_helper.cpp
-        renderer_vulkan/vk_helper.h)
+        renderer_vulkan/vk_memory_manager.h)
 
     target_include_directories(video_core PRIVATE Vulkan::Vulkan sirit)
     target_compile_definitions(video_core PRIVATE HAS_VULKAN)
