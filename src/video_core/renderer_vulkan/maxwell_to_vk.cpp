@@ -187,4 +187,18 @@ vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison) {
     return vk::CompareOp::eAlways;
 }
 
+vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
+    switch (index_format) {
+    case Maxwell::IndexFormat::UnsignedByte:
+        UNIMPLEMENTED_MSG("Vulkan does not support native u8 index type");
+        return vk::IndexType::eUint16;
+    case Maxwell::IndexFormat::UnsignedShort:
+        return vk::IndexType::eUint16;
+    case Maxwell::IndexFormat::UnsignedInt:
+        return vk::IndexType::eUint32;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented index_format={}", static_cast<u32>(index_format));
+    return vk::IndexType::eUint16;
+}
+
 } // namespace Vulkan::MaxwellToVK

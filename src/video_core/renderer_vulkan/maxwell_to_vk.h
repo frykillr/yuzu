@@ -25,4 +25,6 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
 
 vk::CompareOp ComparisonOp(Maxwell::ComparisonOp comparison);
 
+vk::IndexType IndexFormat(Maxwell::IndexFormat index_format);
+
 } // namespace Vulkan::MaxwellToVK

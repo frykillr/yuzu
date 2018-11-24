@@ -55,8 +55,15 @@ public:
             descriptor_sets.Push(descriptor_set);
         }
     }
+
     void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
         vertex_bindings.Push(buffer, offset);
+    }
+
+    void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type) {
+        index_buffer = buffer;
+        index_offset = offset;
+        index_type = type;
     }
 
     std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> GetWriteDescriptorSet() {
@@ -85,11 +92,20 @@ public:
         }
     }
 
+    void BindIndexBuffer(vk::CommandBuffer cmdbuf) const {
+        DEBUG_ASSERT(index_buffer && index_offset != 0);
+        cmdbuf.bindIndexBuffer(index_buffer, index_offset, index_type);
+    }
+
 private:
     static constexpr std::size_t MAX_DESCRIPTOR_BINDINGS =
         Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
 
     StaticVector<Maxwell::NumVertexArrays, vk::Buffer, vk::DeviceSize> vertex_bindings;
+
+    vk::Buffer index_buffer{};
+    vk::DeviceSize index_offset{};
+    vk::IndexType index_type{};
 
     StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSet> descriptor_sets;
 
@@ -122,9 +138,7 @@ void RasterizerVulkan::DrawArrays() {
 
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
     const auto& regs = gpu.regs;
-
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
-    ASSERT_MSG(!is_indexed, "Unimplemented");
 
     VKFence& fence = sched.BeginPass(true);
     PipelineParams params;
@@ -144,6 +158,7 @@ void RasterizerVulkan::DrawArrays() {
             VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
     }
     {
+        // TODO(Rodrigo): Dehardcode this and put it in a function
         PipelineParams::ColorAttachment attachment;
         attachment.index = 0;
         attachment.pixel_format =
@@ -155,12 +170,15 @@ void RasterizerVulkan::DrawArrays() {
 
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
+    if (is_indexed) {
+        buffer_size = Common::AlignUp<std::size_t>(buffer_size, 4) + CalculateIndexBufferSize();
+    }
     buffer_size += Maxwell::MaxConstBuffers * (MaxConstbufferSize + uniform_buffer_alignment);
 
     buffer_cache->Reserve(buffer_size);
 
     SetupVertexArrays(params, state);
-
+    SetupIndexBuffer(state);
     Pipeline pipeline = shader_cache->GetPipeline(params);
 
     for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
@@ -197,19 +215,24 @@ void RasterizerVulkan::DrawArrays() {
                 vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
+    // TODO(Rodrigo): Dehardcode renderpass size
     const vk::RenderPassBeginInfo renderpass_bi(pipeline.renderpass, fb_info.framebuffer,
-                                                {{0, 0}, {1280, 720}}, 0, nullptr);
+                                                {{0, 0}, {1280, 720}}, 0,
+                                                nullptr /* <-- this is clear values */);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle);
         state.BindDescriptors(cmdbuf, pipeline.layout);
         state.BindVertexBuffers(cmdbuf);
+        if (is_indexed)
+            state.BindIndexBuffer(cmdbuf);
 
-        // TODO(Rodrigo): Implement indexed vertex buffers.
-        const u32 vertex_count = regs.vertex_buffer.count;
-        const u32 vertex_first = regs.vertex_buffer.first;
-
-        cmdbuf.draw(vertex_count, 1, vertex_first, 0);
+        if (is_indexed) {
+            constexpr u32 vertex_offset = 0;
+            cmdbuf.drawIndexed(regs.index_array.count, 1, regs.index_array.first, vertex_offset, 0);
+        } else {
+            cmdbuf.draw(regs.vertex_buffer.count, 1, regs.vertex_buffer.first, 0);
+        }
     }
     cmdbuf.endRenderPass();
 
@@ -352,8 +375,7 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::Rend
 }
 
 void RasterizerVulkan::SetupVertexArrays(PipelineParams& params, PipelineState& state) {
-    const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
-    const auto& regs = gpu.regs;
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
     for (u32 index = 0; index < static_cast<u32>(Maxwell::NumVertexAttributes); ++index) {
         const auto& attrib = regs.vertex_attrib_format[index];
@@ -398,6 +420,14 @@ void RasterizerVulkan::SetupVertexArrays(PipelineParams& params, PipelineState& 
 
         state.AddVertexBinding(buffer, offset);
     }
+}
+
+void RasterizerVulkan::SetupIndexBuffer(PipelineState& state) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    const auto [offset, buffer] =
+        buffer_cache->UploadMemory(regs.index_array.IndexStart(), CalculateIndexBufferSize());
+    state.SetIndexBinding(buffer, offset, MaxwellToVK::IndexFormat(regs.index_array.format));
 }
 
 void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
@@ -460,6 +490,13 @@ std::size_t RasterizerVulkan::CalculateVertexArraysSize() const {
         size += end - start + 1;
     }
     return size;
+}
+
+std::size_t RasterizerVulkan::CalculateIndexBufferSize() const {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    return static_cast<std::size_t>(regs.index_array.count) *
+           static_cast<std::size_t>(regs.index_array.FormatSizeInBytes());
 }
 
 void RasterizerVulkan::SyncDepthStencilState(PipelineParams& params) {

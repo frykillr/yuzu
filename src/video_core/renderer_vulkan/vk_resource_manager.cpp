@@ -252,10 +252,10 @@ VKResourceManager::VKResourceManager(const VKDevice& device_handler)
 VKResourceManager::~VKResourceManager() {
     // There may be owned fences here (e.g. present fences), forcefully release them. It's safe
     // on the GPU perspective since device must be idle before destroying the resource manager.
-    std::for_each(fences.begin(), fences.end(), [](auto& fence) {
+    for (auto& fence : fences) {
         fence->Release();
         fence->Tick(true, true);
-    });
+    }
 }
 
 VKFence& VKResourceManager::CommitFence() {

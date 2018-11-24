@@ -61,10 +61,14 @@ private:
 
     void SetupVertexArrays(PipelineParams& params, PipelineState& state);
 
+    void SetupIndexBuffer(PipelineState& state);
+
     void SetupConstBuffers(PipelineState& state, Shader shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
 
     std::size_t CalculateVertexArraysSize() const;
+
+    std::size_t CalculateIndexBufferSize() const;
 
     void SyncDepthStencilState(PipelineParams& params);
 

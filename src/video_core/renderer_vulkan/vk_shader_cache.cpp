@@ -297,9 +297,13 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const vk::PipelineMultisampleStateCreateInfo multisampling_ci(
         {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
 
+    const vk::CompareOp depth_test_compare =
+        depth_stencil.depth_test_enable
+            ? MaxwellToVK::ComparisonOp(depth_stencil.depth_test_function)
+            : vk::CompareOp::eAlways;
     const vk::PipelineDepthStencilStateCreateInfo depth_stencil_ci(
-        {}, depth_stencil.depth_test_enable, depth_stencil.depth_write_enable,
-        MaxwellToVK::ComparisonOp(depth_stencil.depth_test_function), 0, false, {}, {}, 0.f, 0.f);
+        {}, depth_stencil.depth_test_enable, depth_stencil.depth_write_enable, depth_test_compare,
+        0, false, {}, {}, 0.f, 0.f);
 
     const vk::PipelineColorBlendAttachmentState color_blend_attachment(
         false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
