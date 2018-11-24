@@ -25,37 +25,26 @@ VKScheduler::VKScheduler(VKResourceManager& resource_manager, const VKDevice& de
 VKScheduler::~VKScheduler() = default;
 
 VKFence& VKScheduler::BeginPass(bool take_fence_ownership) {
+    DEBUG_ASSERT(!recording_submit);
     recording_submit = true;
 
     VKFence& now_fence = *next_fence;
-    pass = std::make_unique<Call>();
+    pass = std::make_unique<Pass>();
     pass->fence = &now_fence;
     pass->take_fence_ownership = take_fence_ownership;
 
     // Allocate the semaphore the current call will use in a future fence, to avoid it being
     // freed while it's still being waited on.
     next_fence = &resource_manager.CommitFence();
-    pass->semaphore = resource_manager.CommitSemaphore(*next_fence);
 
     return now_fence;
 }
 
-void VKScheduler::EndPass() {
-    ASSERT(recording_submit);
-
-    if (previous_semaphore) {
-        // TODO(Rodrigo): Pipeline wait can be optimized with an extra argument.
-        pass->wait_semaphores.push_back(previous_semaphore);
-        pass->pipeline_stages.push_back(vk::PipelineStageFlagBits::eAllCommands);
-    }
-    ASSERT_MSG(pass->wait_semaphores.size() == pass->pipeline_stages.size(),
-               "Dependency size mismatch");
-
-    previous_semaphore = pass->semaphore;
-    pass->submit_infos.push_back({static_cast<u32>(pass->wait_semaphores.size()),
-                                  pass->wait_semaphores.data(), pass->pipeline_stages.data(),
-                                  static_cast<u32>(pass->commands.size()), pass->commands.data(), 1,
-                                  &pass->semaphore});
+void VKScheduler::EndPass(vk::Semaphore semaphore) {
+    DEBUG_ASSERT(recording_submit);
+    pass->semaphore = semaphore;
+    pass->submit_infos.push_back({0, nullptr, nullptr, static_cast<u32>(pass->commands.size()),
+                                  pass->commands.data(), semaphore ? 1u : 0u, &pass->semaphore});
 
     scheduled_passes.push_back(std::move(pass));
     if (++flush_ticks > TICKS_TO_FLUSH) {
@@ -67,15 +56,14 @@ void VKScheduler::EndPass() {
 }
 
 vk::CommandBuffer VKScheduler::BeginRecord() {
-    ASSERT(recording_submit);
-
+    DEBUG_ASSERT(recording_submit);
     const vk::CommandBuffer cmdbuf = resource_manager.CommitCommandBuffer(*pass->fence);
     cmdbuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
     return cmdbuf;
 }
 
 void VKScheduler::EndRecord(vk::CommandBuffer cmdbuf) {
-    ASSERT(recording_submit);
+    DEBUG_ASSERT(recording_submit);
     cmdbuf.end();
     pass->commands.push_back(cmdbuf);
 }
@@ -89,12 +77,6 @@ void VKScheduler::Flush() {
         }
     }
     scheduled_passes.clear();
-}
-
-vk::Semaphore VKScheduler::QuerySemaphore() {
-    vk::Semaphore semaphore = previous_semaphore;
-    previous_semaphore = nullptr;
-    return semaphore;
 }
 
 } // namespace Vulkan

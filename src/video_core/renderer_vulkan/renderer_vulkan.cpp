@@ -48,13 +48,12 @@ void RendererVulkan::SwapBuffers(
             blit_screen->Recreate();
         }
 
-        swapchain->AcquireNextImage(*present_semaphore);
-        VKFence& fence = blit_screen->Draw(*rasterizer, *sched, *framebuffer);
+        swapchain->AcquireNextImage();
+        const auto [fence, render_semaphore] = blit_screen->Draw(*framebuffer);
 
         sched->Flush();
 
-        const vk::Semaphore render_semaphore = sched->QuerySemaphore();
-        swapchain->Present(*present_semaphore, render_semaphore, fence);
+        swapchain->Present(render_semaphore, fence);
 
         render_window.SwapBuffers();
     }
@@ -84,13 +83,12 @@ bool RendererVulkan::Init() {
 
     sched = std::make_unique<VKScheduler>(*resource_manager, *device_handler);
 
-    present_semaphore = device.createSemaphoreUnique({});
-
-    blit_screen = std::make_unique<VKBlitScreen>(render_window, *device_handler, *resource_manager,
-                                                 *memory_manager, *swapchain, screen_info);
-
     rasterizer = std::make_unique<RasterizerVulkan>(render_window, screen_info, *device_handler,
                                                     *resource_manager, *memory_manager, *sched);
+
+    blit_screen = std::make_unique<VKBlitScreen>(render_window, *rasterizer, *device_handler,
+                                                 *resource_manager, *memory_manager, *swapchain,
+                                                 *sched, screen_info);
 
     return true;
 }
@@ -106,7 +104,6 @@ void RendererVulkan::ShutDown() {
     sched.reset();
     swapchain.reset();
     memory_manager.reset();
-    present_semaphore.reset();
     resource_manager.reset();
 
     device_handler.reset();

@@ -25,9 +25,9 @@ public:
 
     void Create(u32 width, u32 height);
 
-    void AcquireNextImage(vk::Semaphore present_complete);
+    void AcquireNextImage();
 
-    void Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore, VKFence& fence);
+    void Present(vk::Semaphore render_semaphore, VKFence& fence);
 
     bool HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const;
 
@@ -57,6 +57,7 @@ public:
 
 private:
     void CreateSwapchain(u32 width, u32 height, const vk::SurfaceCapabilitiesKHR& capabilities);
+    void CreateSemaphores();
     void CreateImageViews();
 
     void Destroy();
@@ -75,8 +76,10 @@ private:
     std::vector<vk::UniqueImageView> image_views;
     std::vector<vk::UniqueFramebuffer> framebuffers;
     std::vector<VKFence*> fences;
+    std::vector<vk::UniqueSemaphore> present_semaphores;
 
     u32 image_index{};
+    u32 frame_index{};
 
     vk::Format image_format{};
     vk::Extent2D extent{};

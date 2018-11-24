@@ -26,21 +26,16 @@ public:
 
     void EndRecord(vk::CommandBuffer cmdbuf);
 
-    void EndPass();
+    void EndPass(vk::Semaphore semaphore = nullptr);
 
     void Flush();
 
-    vk::Semaphore QuerySemaphore();
-
 private:
-    struct Call {
+    struct Pass {
         VKFence* fence;
         vk::Semaphore semaphore;
         std::vector<vk::CommandBuffer> commands;
         std::vector<vk::CommandBuffer> cmdbufs;
-        std::vector<vk::Semaphore> signal_semaphores;
-        std::vector<vk::Semaphore> wait_semaphores;
-        std::vector<vk::PipelineStageFlags> pipeline_stages;
         std::vector<vk::SubmitInfo> submit_infos;
         bool take_fence_ownership;
     };
@@ -49,12 +44,11 @@ private:
     const vk::Device device;
     const vk::Queue queue;
 
-    std::unique_ptr<Call> pass;
-    std::vector<std::unique_ptr<Call>> scheduled_passes;
+    std::unique_ptr<Pass> pass;
+    std::vector<std::unique_ptr<Pass>> scheduled_passes;
     u32 flush_ticks = 0;
 
     VKFence* next_fence = nullptr;
-    vk::Semaphore previous_semaphore = nullptr;
 
     bool recording_submit = false;
 };

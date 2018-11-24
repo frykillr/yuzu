@@ -12,6 +12,8 @@
 namespace Vulkan {
 
 vk::UniqueShaderModule BuildShader(vk::Device device, std::size_t code_size, const u8* code_data) {
+    LOG_DEBUG(Render_OpenGL, "Creating shader...");
+
     const vk::ShaderModuleCreateInfo shader_ci({}, code_size,
                                                reinterpret_cast<const u32*>(code_data));
     vk::ShaderModule shader_module;

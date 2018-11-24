@@ -14,7 +14,6 @@ class VKDevice;
 class VKFence;
 class VKFencedPool;
 class VKResourceManager;
-class SemaphorePool;
 class CommandBufferPool;
 
 namespace Resource {
@@ -32,51 +31,6 @@ protected:
      * @param signaling_fence Fence that signals its usage end.
      */
     virtual void OnFenceRemoval(VKFence* signaling_fence) = 0;
-};
-
-/**
- * Persistent resources are those that have a prolonged lifetime and you can read and write to them.
- * An use case example for this kind of resource are images.
- */
-class Persistent : public Base {
-    friend class VKResourceManager;
-
-public:
-    explicit Persistent(VKResourceManager& resource_manager, vk::Device device);
-    virtual ~Persistent();
-
-    /// Waits for all operations to finish.
-    void Wait();
-
-    /**
-     * Takes partial ownership of the resource to read from it. Read operations have to signal it
-     * when they finish.
-     * @param new_fence Fence to hold the right to read from the resource.
-     * @returns A semaphore that's going to be signaled (or is already signaled) when the write
-     * operation finishes. Read operations have to be protected with it.
-     */
-    vk::Semaphore ReadProtect(VKFence& new_fence);
-
-    /**
-     * Takes exclusive ownership of the resource to write to it. It will wait for all pending read
-     * and write operations if they exist.
-     * @param new_fence Fence to hold the write to write to the resource.
-     * @returns A semaphore that has to be signaled when the write operation finishes.
-     */
-    vk::Semaphore WriteProtect(VKFence& new_fence);
-
-protected:
-    void OnFenceRemoval(VKFence* signaling_fence) override;
-
-private:
-    VKResourceManager& resource_manager;
-    const vk::Device device;
-
-    vk::UniqueSemaphore write_semaphore;
-
-    std::vector<VKFence*> read_fences; ///< Fence protecting read operations.
-
-    VKFence* write_fence; ///< Fence protecting write operations. Null when it's free.
 };
 
 /**
@@ -124,7 +78,6 @@ using VKResource = Resource::Base;
  * when they are free to be reused.
  */
 class VKFence {
-    friend class Resource::Persistent;
     friend class VKResourceManager;
 
 public:
@@ -139,7 +92,7 @@ public:
     void Wait();
 
     /**
-     * Releases ownership of the fence. Call after it has been sent to an execution queue.
+     * Releases ownership of the fence. Pass after it has been sent to an execution queue.
      * Unmanaged usage of the fence after the call will result in undefined behavior because it may
      * be being used for something else.
      */
@@ -249,8 +202,6 @@ public:
 
     vk::CommandBuffer CommitCommandBuffer(VKFence& fence);
 
-    vk::Semaphore CommitSemaphore(VKFence& fence);
-
     vk::RenderPass CreateRenderPass(VKFence& fence, const vk::RenderPassCreateInfo& renderpass_ci);
 
     vk::ImageView CreateImageView(VKFence& fence, const vk::ImageViewCreateInfo& image_view_ci);
@@ -289,7 +240,6 @@ private:
     std::size_t fences_iterator = 0;
 
     std::unique_ptr<CommandBufferPool> command_buffer_pool;
-    std::unique_ptr<SemaphorePool> semaphore_pool;
 
     u32 tick_creations{};
 

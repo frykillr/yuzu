@@ -59,8 +59,6 @@ private:
     std::unique_ptr<VKResourceManager> resource_manager;
     std::unique_ptr<VKScheduler> sched;
     std::unique_ptr<VKBlitScreen> blit_screen;
-
-    vk::UniqueSemaphore present_semaphore;
 };
 
 } // namespace Vulkan

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <tuple>
 #include <vulkan/vulkan.hpp>
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 
@@ -34,18 +35,20 @@ class VKImage;
 
 class VKBlitScreen final {
 public:
-    explicit VKBlitScreen(Core::Frontend::EmuWindow& render_window, VKDevice& device_handler,
+    explicit VKBlitScreen(Core::Frontend::EmuWindow& render_window,
+                          VideoCore::RasterizerInterface& rasterizer, VKDevice& device_handler,
                           VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                          VKSwapchain& swapchain, VKScreenInfo& screen_info);
+                          VKSwapchain& swapchain, VKScheduler& sched,
+                          const VKScreenInfo& screen_info);
     ~VKBlitScreen();
 
     void Recreate();
 
-    VKFence& Draw(VideoCore::RasterizerInterface& rasterizer, VKScheduler& sched,
-                  const Tegra::FramebufferConfig& framebuffer);
+    std::tuple<VKFence&, vk::Semaphore> Draw(const Tegra::FramebufferConfig& framebuffer);
 
 private:
     void CreateShaders();
+    void CreateSemaphores();
     void CreateDescriptorPool();
     void CreateRenderPass();
     void CreateDescriptorSetLayout();
@@ -66,12 +69,14 @@ private:
     u64 GetRawImageOffset(const Tegra::FramebufferConfig& framebuffer, u32 image_index) const;
 
     Core::Frontend::EmuWindow& render_window;
+    VideoCore::RasterizerInterface& rasterizer;
     const vk::Device device;
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
     VKSwapchain& swapchain;
+    VKScheduler& sched;
     const u32 image_count;
-    VKScreenInfo& screen_info;
+    const VKScreenInfo& screen_info;
 
     vk::UniqueShaderModule vertex_shader;
     vk::UniqueShaderModule fragment_shader;
@@ -89,6 +94,7 @@ private:
 
     std::vector<std::unique_ptr<VKFenceWatch>> watches;
 
+    std::vector<vk::UniqueSemaphore> semaphores;
     std::vector<std::unique_ptr<VKImage>> raw_images;
     std::vector<const VKMemoryCommit*> raw_buffer_commits;
     u32 raw_width{}, raw_height{};

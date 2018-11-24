@@ -155,18 +155,22 @@ static std::array<f32, 4 * 4> MakeOrthographicMatrix(const f32 width, const f32 
     // clang-format on
 }
 
-VKBlitScreen::VKBlitScreen(Core::Frontend::EmuWindow& render_window, VKDevice& device_handler,
+VKBlitScreen::VKBlitScreen(Core::Frontend::EmuWindow& render_window,
+                           VideoCore::RasterizerInterface& rasterizer, VKDevice& device_handler,
                            VKResourceManager& resource_manager, VKMemoryManager& memory_manager,
-                           VKSwapchain& swapchain, VKScreenInfo& screen_info)
-    : render_window(render_window), device(device_handler.GetLogical()),
-      resource_manager(resource_manager), memory_manager(memory_manager), swapchain(swapchain),
-      image_count(swapchain.GetImageCount()), screen_info(screen_info) {
+                           VKSwapchain& swapchain, VKScheduler& sched,
+                           const VKScreenInfo& screen_info)
+    : render_window{render_window}, rasterizer{rasterizer}, device{device_handler.GetLogical()},
+      resource_manager{resource_manager}, memory_manager{memory_manager}, swapchain{swapchain},
+      sched{sched}, image_count{swapchain.GetImageCount()}, screen_info{screen_info} {
 
     watches.resize(image_count);
     std::generate(watches.begin(), watches.end(),
                   []() { return std::make_unique<VKFenceWatch>(); });
 
+    // These functions are called once during initialization
     CreateShaders();
+    CreateSemaphores();
     CreateDescriptorPool();
     CreateRenderPass();
     CreateDescriptorSetLayout();
@@ -191,8 +195,8 @@ void VKBlitScreen::Recreate() {
     CreateFramebuffers();
 }
 
-VKFence& VKBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VKScheduler& sched,
-                            const Tegra::FramebufferConfig& framebuffer) {
+std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
+    const Tegra::FramebufferConfig& framebuffer) {
 
     const VAddr framebuffer_addr{framebuffer.address + framebuffer.offset};
     const bool use_accelerated =
@@ -267,14 +271,23 @@ VKFence& VKBlitScreen::Draw(VideoCore::RasterizerInterface& rasterizer, VKSchedu
     cmdbuf.endRenderPass();
 
     sched.EndRecord(cmdbuf);
-    sched.EndPass();
 
-    return fence;
+    const vk::Semaphore render_semaphore = *semaphores[image_index];
+    sched.EndPass(render_semaphore);
+
+    return {fence, render_semaphore};
 }
 
 void VKBlitScreen::CreateShaders() {
     vertex_shader = BuildShader(device, sizeof(blit_vertex_code), blit_vertex_code);
     fragment_shader = BuildShader(device, sizeof(blit_fragment_code), blit_fragment_code);
+}
+
+void VKBlitScreen::CreateSemaphores() {
+    semaphores.resize(image_count);
+    for (std::size_t i = 0; i < image_count; ++i) {
+        semaphores[i] = device.createSemaphoreUnique({});
+    }
 }
 
 void VKBlitScreen::CreateDescriptorPool() {

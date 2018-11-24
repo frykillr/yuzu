@@ -15,7 +15,6 @@ namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune these numbers.
 constexpr u32 COMMAND_BUFFERS_COUNT = 0x1000;
-constexpr u32 SEMAPHORES_COUNT = 0x1000;
 
 constexpr u32 FENCES_COUNT = 0x4;
 constexpr u32 FENCES_GROW_STEP = 0x4;
@@ -51,88 +50,9 @@ private:
     std::vector<vk::UniqueCommandBuffer> cmdbufs;
 };
 
-class SemaphorePool final : public VKFencedPool {
-public:
-    explicit SemaphorePool(vk::Device device, u32 graphics_family) {
-        InitStatic(SEMAPHORES_COUNT);
-
-        semaphores.resize(SEMAPHORES_COUNT);
-        for (u32 i = 0; i < SEMAPHORES_COUNT; ++i) {
-            const vk::SemaphoreCreateInfo semaphore_ci;
-            semaphores[i] = device.createSemaphoreUnique(semaphore_ci);
-        }
-    }
-    ~SemaphorePool() = default;
-
-    vk::Semaphore Commit(VKFence& fence) {
-        return *semaphores[ResourceCommit(fence)];
-    }
-
-private:
-    std::vector<vk::UniqueSemaphore> semaphores;
-};
-
 Base::Base() = default;
 
 Base::~Base() = default;
-
-Persistent::Persistent(VKResourceManager& resource_manager, vk::Device device)
-    : resource_manager(resource_manager), device(device) {
-
-    const vk::SemaphoreCreateInfo semaphore_ci;
-    write_semaphore = device.createSemaphoreUnique(semaphore_ci);
-}
-
-Persistent::~Persistent() {
-    for (auto& read_fence : read_fences) {
-        read_fence->Unprotect(this);
-    }
-    if (write_fence) {
-        write_fence->Unprotect(this);
-    }
-}
-
-void Persistent::Wait() {
-    for (auto* fence : read_fences) {
-        const bool is_free = fence->Tick(true, true);
-        ASSERT(is_free);
-    }
-    if (write_fence) {
-        const bool is_free = write_fence->Tick(true, true);
-        ASSERT(is_free);
-    }
-}
-
-vk::Semaphore Persistent::ReadProtect(VKFence& new_fence) {
-    new_fence.Protect(this);
-    read_fences.push_back(&new_fence);
-
-    return *write_semaphore;
-}
-
-vk::Semaphore Persistent::WriteProtect(VKFence& new_fence) {
-    Wait();
-
-    // There's a bug if the resource is not free after waiting for all of its fences.
-    ASSERT(read_fences.empty());
-    ASSERT(write_fence == nullptr);
-
-    // Add current the new fence.
-    new_fence.Protect(this);
-    write_fence = &new_fence;
-
-    return *write_semaphore;
-}
-
-void Persistent::OnFenceRemoval(VKFence* signaling_fence) {
-    if (write_fence == signaling_fence) {
-        write_fence = nullptr;
-    }
-    const auto it = std::find(read_fences.begin(), read_fences.end(), signaling_fence);
-    if (it != read_fences.end()) {
-        read_fences.erase(it);
-    }
-}
 
 OneShot::OneShot() = default;
 
@@ -310,9 +230,9 @@ std::size_t VKFencedPool::HandleFullPool() {
 }
 
 void VKFencedPool::Grow(std::size_t new_entries) {
-    if (new_entries == 0) {
+    if (new_entries == 0)
         return;
-    }
+
     const auto old_capacity = watches.size();
     watches.resize(old_capacity + new_entries);
     std::generate(watches.begin() + old_capacity, watches.end(),
@@ -323,11 +243,10 @@ void VKFencedPool::Grow(std::size_t new_entries) {
 }
 
 VKResourceManager::VKResourceManager(const VKDevice& device_handler)
-    : device(device_handler.GetLogical()), graphics_family(device_handler.GetGraphicsFamily()) {
+    : device{device_handler.GetLogical()}, graphics_family{device_handler.GetGraphicsFamily()} {
 
     GrowFences(FENCES_COUNT);
     command_buffer_pool = std::make_unique<CommandBufferPool>(device, graphics_family);
-    semaphore_pool = std::make_unique<SemaphorePool>(device, graphics_family);
 }
 
 VKResourceManager::~VKResourceManager() {
@@ -380,10 +299,6 @@ VKFence& VKResourceManager::CommitFence() {
 
 vk::CommandBuffer VKResourceManager::CommitCommandBuffer(VKFence& fence) {
     return command_buffer_pool->Commit(fence);
-}
-
-vk::Semaphore VKResourceManager::CommitSemaphore(VKFence& fence) {
-    return semaphore_pool->Commit(fence);
 }
 
 vk::RenderPass VKResourceManager::CreateRenderPass(VKFence& fence,

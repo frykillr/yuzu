@@ -74,15 +74,15 @@ void VKSwapchain::Create(u32 width, u32 height) {
     Destroy();
 
     CreateSwapchain(width, height, capabilities);
+    CreateSemaphores();
     CreateImageViews();
 
     fences.resize(image_count, nullptr);
 }
 
-void VKSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
-    device.acquireNextImageKHR(*handle, std::numeric_limits<u64>::max(), present_complete, {},
-                               &image_index);
-
+void VKSwapchain::AcquireNextImage() {
+    device.acquireNextImageKHR(*handle, std::numeric_limits<u64>::max(),
+                               *present_semaphores[frame_index], {}, &image_index);
     if (auto& fence = fences[image_index]; fence) {
         fence->Wait();
         fence->Release();
@@ -90,8 +90,8 @@ void VKSwapchain::AcquireNextImage(vk::Semaphore present_complete) {
     }
 }
 
-void VKSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore render_semaphore,
-                          VKFence& fence) {
+void VKSwapchain::Present(vk::Semaphore render_semaphore, VKFence& fence) {
+    const vk::Semaphore present_semaphore = *present_semaphores[frame_index];
     std::array<vk::Semaphore, 2> semaphores{present_semaphore, render_semaphore};
     const u32 wait_semaphore_count{render_semaphore ? 2u : 1u};
 
@@ -113,6 +113,7 @@ void VKSwapchain::Present(vk::Semaphore present_semaphore, vk::Semaphore render_
 
     ASSERT(fences[image_index] == nullptr);
     fences[image_index] = &fence;
+    frame_index = (frame_index + 1) % image_count;
 }
 
 bool VKSwapchain::HasFramebufferChanged(const Layout::FramebufferLayout& framebuffer) const {
@@ -160,16 +161,26 @@ void VKSwapchain::CreateSwapchain(u32 width, u32 height,
     image_format = surface_format.format;
 }
 
+void VKSwapchain::CreateSemaphores() {
+    present_semaphores.resize(image_count);
+    for (u32 i = 0; i < image_count; i++) {
+        present_semaphores[i] = device.createSemaphoreUnique({});
+    }
+}
+
 void VKSwapchain::CreateImageViews() {
     image_views.resize(image_count);
     for (u32 i = 0; i < image_count; i++) {
-        vk::ImageViewCreateInfo image_view_ci({}, images[i], vk::ImageViewType::e2D, image_format,
-                                              {}, {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+        const vk::ImageViewCreateInfo image_view_ci({}, images[i], vk::ImageViewType::e2D,
+                                                    image_format, {},
+                                                    {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
         image_views[i] = device.createImageViewUnique(image_view_ci);
     }
 }
 
 void VKSwapchain::Destroy() {
+    frame_index = 0;
+    present_semaphores.clear();
     framebuffers.clear();
     image_views.clear();
     handle.reset();
