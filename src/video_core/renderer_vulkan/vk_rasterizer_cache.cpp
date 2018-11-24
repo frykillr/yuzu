@@ -213,7 +213,7 @@ vk::ImageView CachedSurface::GetImageView() {
 }
 
 void CachedSurface::LoadVKBuffer() {
-    //UNIMPLEMENTED();
+    UNIMPLEMENTED();
 }
 
 void CachedSurface::FlushVKBuffer() {
@@ -221,7 +221,7 @@ void CachedSurface::FlushVKBuffer() {
 }
 
 void CachedSurface::UploadVKTexture() {
-    //UNIMPLEMENTED();
+    UNIMPLEMENTED();
 }
 
 VKRasterizerCache::VKRasterizerCache(RasterizerVulkan& rasterizer, VKDevice& device_handler,

@@ -66,7 +66,7 @@ public:
         index_type = type;
     }
 
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> GetWriteDescriptorSet() {
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureWriteDescriptorSet() {
         const u32 index = descriptor_bindings_count++;
         ASSERT(index < static_cast<u32>(MAX_DESCRIPTOR_BINDINGS));
 
@@ -465,7 +465,7 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
         const auto [offset, buffer_handle] =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
 
-        auto [write, buffer_info] = state.GetWriteDescriptorSet();
+        auto [write, buffer_info] = state.CaptureWriteDescriptorSet();
         buffer_info =
             vk::DescriptorBufferInfo(buffer_handle, offset, static_cast<vk::DeviceSize>(size));
         write = vk::WriteDescriptorSet(descriptor_set, used_buffer.GetBinding(), 0, 1,
