@@ -180,8 +180,7 @@ Id SpirvModule::ConvertIntegerSize(Id type, Id value, Register::Size size) {
         return Emit(OpShiftRightLogical(type, Emit(OpShiftLeftLogical(type, value, shift)), shift));
     }
     default:
-        LOG_CRITICAL(HW_GPU, "Unimplemented conversion size {}", static_cast<u32>(size));
-        UNREACHABLE();
+        UNIMPLEMENTED_MSG("Unimplemented conversion size {}", static_cast<u32>(size));
     }
 }
 
@@ -217,7 +216,8 @@ Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
     }
     case Attribute::Index::Position: {
         ASSERT_MSG(stage != ShaderStage::Vertex, "Position input in a vertex shader");
-        ASSERT_MSG(stage == ShaderStage::Fragment, "Input attribute stage not implemented");
+        UNIMPLEMENTED_IF_MSG(stage != ShaderStage::Fragment,
+                             "Position attribute in this stage is not implemented");
         const Id frag_coord = Emit(OpLoad(t_float4, fs.frag_coord));
         return Emit(
             OpCompositeConstruct(t_float4, {Emit(OpCompositeExtract(t_float, frag_coord, {0})),
@@ -228,13 +228,11 @@ Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
     }
     case Attribute::Index::PointCoord:
     case Attribute::Index::FrontFacing:
-        UNREACHABLE_MSG("Unimplemented");
+        UNIMPLEMENTED();
     default:
         const Id composite = DeclareInputAttribute(attribute, input_mode);
-        if (!composite) {
-            LOG_CRITICAL(HW_GPU, "Unhandled input attribute: {}", static_cast<u32>(attribute));
-            UNREACHABLE();
-        }
+        UNIMPLEMENTED_IF_MSG(!composite, "Unhandled input attribute: {}",
+                             static_cast<u32>(attribute));
         return Emit(OpLoad(t_float4, composite));
     }
 
@@ -244,7 +242,7 @@ Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
 void SpirvModule::SetRegisterToFloat(const Register& reg, u64 elem, Id value,
                                      u64 dest_num_components, u64 value_num_components,
                                      bool is_saturated, u64 dest_elem, bool precise) {
-    ASSERT_MSG(!is_saturated, "Unimplemented");
+    UNIMPLEMENTED_IF(is_saturated);
 
     SetRegister(reg, elem, value, dest_num_components, value_num_components, dest_elem, precise);
 }
@@ -253,8 +251,8 @@ void SpirvModule::SetRegisterToInteger(const Register& reg, bool is_signed, u64 
                                        u64 dest_num_components, u64 value_num_components,
                                        bool is_saturated, u64 dest_elem, Register::Size size,
                                        bool sets_cc) {
-    ASSERT_MSG(!is_saturated, "Unimplemented");
-    ASSERT_MSG(!sets_cc, "Unimplemented");
+    UNIMPLEMENTED_IF(is_saturated);
+    UNIMPLEMENTED_IF(sets_cc);
 
     const Id src_type{is_signed ? t_sint : t_uint};
     const Id src = Emit(OpBitcast(t_float, ConvertIntegerSize(src_type, value, size)));
@@ -281,7 +279,7 @@ void SpirvModule::SetOutputAttributeToRegister(Attribute::Index attribute, u64 e
                 OpAccessChain(t_out_float, vs.per_vertex,
                               {Constant(t_uint, 0u), Constant(t_uint, static_cast<u32>(elem))}));
         case Attribute::Index::PointSize:
-            UNREACHABLE_MSG("Unimplemented built in varying");
+            UNIMPLEMENTED_MSG("Unimplemented built in varying");
         default:
             const auto index{static_cast<u32>(attribute) -
                              static_cast<u32>(Attribute::Index::Attribute_0)};
@@ -290,24 +288,17 @@ void SpirvModule::SetOutputAttributeToRegister(Attribute::Index attribute, u64 e
                                           {Constant(t_uint, static_cast<u32>(elem))}));
             }
 
-            LOG_CRITICAL(HW_GPU, "Unhandled output attribute: {}", index);
-            UNREACHABLE();
+            UNIMPLEMENTED_MSG("Unhandled output attribute: {}", index);
             return {};
         }
     }();
-    ASSERT_MSG(dest, "Unimplemented output attribute");
+    UNIMPLEMENTED_IF_MSG(!dest, "Unimplemented output attribute");
 
     Emit(OpStore(dest, GetRegisterAsFloat(val_reg)));
 }
 
 void SpirvModule::SetRegister(const Register& reg, u64 elem, Id value, u64 dest_num_components,
                               u64 value_num_components, u64 dest_elem, bool precise) {
-    if (reg == Register::ZeroIndex) {
-        LOG_CRITICAL(HW_GPU, "Cannot set Register::ZeroIndex");
-        UNREACHABLE();
-        return;
-    }
-
     Id dest = regs[reg.GetSwizzledIndex(elem)];
     if (dest_num_components > 1) {
         dest =
@@ -397,17 +388,12 @@ Id SpirvModule::DeclareInputAttribute(Attribute::Index attribute,
 
     if (declr_input_attribute.count(attribute) != 0) {
         const auto& entry = declr_input_attribute[attribute];
-        if (is_custom && entry.input_mode != input_mode) {
-            LOG_CRITICAL(HW_GPU, "Same Input multiple input modes");
-            UNREACHABLE();
-        }
+        UNIMPLEMENTED_IF_MSG(is_custom && entry.input_mode != input_mode,
+                             "Same Input multiple input modes");
         return entry.id;
     }
     const auto index{static_cast<u32>(attribute) - static_cast<u32>(Attribute::Index::Attribute_0)};
-    if (!is_custom) {
-        LOG_CRITICAL(HW_GPU, "Unhandled input attribute: {}", static_cast<u32>(attribute));
-        UNREACHABLE();
-    }
+    UNIMPLEMENTED_IF_MSG(!is_custom, "Unhandled input attribute: {}", static_cast<u32>(attribute));
 
     const Id variable = AddGlobalVariable(OpVariable(t_in_float4, spv::StorageClass::Input));
     Name(variable, fmt::format("input_attr_{}", index));
@@ -450,7 +436,7 @@ Id SpirvModule::GetFloatOperandAbsNeg(Id operand, bool abs, bool neg) {
 
 void SpirvModule::EmitFragmentOutputsWrite() {
     ASSERT(stage == Maxwell3D::Regs::ShaderStage::Fragment);
-    ASSERT_MSG(header.ps.omap.sample_mask == 0, "Samplemask write is unimplemented");
+    UNIMPLEMENTED_IF_MSG(header.ps.omap.sample_mask != 0, "Samplemask write is unimplemented");
 
     // Write the color outputs using the data in the shader registers, disabled
     // rendertargets/components are skipped in the register assignment.
@@ -518,7 +504,7 @@ Id SpirvModule::Generate(const std::set<Subroutine> subroutines) {
             const u32 compile_end = CompileRange(label_addr, next_label);
             if (compile_end > next_label && compile_end != PROGRAM_END) {
                 // This happens only when there is a label inside a IF/LOOP block
-                UNREACHABLE();
+                UNIMPLEMENTED();
             }
         }
 
@@ -555,16 +541,15 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
     // Decoding failure
     if (!opcode) {
-        LOG_CRITICAL(HW_GPU, "Unhandled instruction: {0:x}", instr.value);
-        UNREACHABLE();
+        UNIMPLEMENTED_MSG("Unhandled instruction: {0:x}", instr.value);
         return offset + 1;
     }
 
     Name(Emit(OpUndef(t_void)),
          fmt::format("{}_{}_0x{:016x}", offset, opcode->get().GetName(), instr.value));
 
-    ASSERT_MSG(instr.pred.full_pred != Pred::NeverExecute,
-               "NeverExecute predicate not implemented");
+    UNIMPLEMENTED_IF_MSG(instr.pred.full_pred == Pred::NeverExecute,
+                         "NeverExecute predicate not implemented");
 
     // Some instructions (like SSY) don't have a predicate field, they are always
     // unconditionally executed.
@@ -604,40 +589,40 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         case OpCode::Id::FMUL_R:
         case OpCode::Id::FMUL_IMM: {
             // FMUL does not have 'abs' bits and only the second operand has a 'neg' bit.
-            ASSERT_MSG(instr.fmul.tab5cb8_2 == 0, "FMUL tab5cb8_2({}) is not implemented",
-                       instr.fmul.tab5cb8_2.Value());
-            ASSERT_MSG(instr.fmul.tab5c68_1 == 0, "FMUL tab5cb8_1({}) is not implemented",
-                       instr.fmul.tab5c68_1.Value());
-            ASSERT_MSG(instr.fmul.tab5c68_0 == 1, "FMUL tab5cb8_0({}) is not implemented",
-                       instr.fmul.tab5c68_0
-                           .Value()); // SMO typical sends 1 here which seems to be the default
-            ASSERT_MSG(instr.fmul.cc == 0, "FMUL cc is not implemented");
+            UNIMPLEMENTED_IF_MSG(instr.fmul.tab5cb8_2 != 0, "FMUL tab5cb8_2({}) is not implemented",
+                                 instr.fmul.tab5cb8_2.Value());
+            UNIMPLEMENTED_IF_MSG(instr.fmul.tab5c68_1 != 0, "FMUL tab5cb8_1({}) is not implemented",
+                                 instr.fmul.tab5c68_1.Value());
+            UNIMPLEMENTED_IF_MSG(
+                instr.fmul.tab5c68_0 != 1, "FMUL tab5cb8_0({}) is not implemented",
+                instr.fmul.tab5c68_0
+                    .Value()); // SMO typical sends 1 here which seems to be the default
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in FMUL is not implemented");
 
             op_b = GetFloatOperandAbsNeg(op_b, false, instr.fmul.negate_b);
 
             SetRegisterToFloat(instr.gpr0, 0, Emit(OpFMul(t_float, op_a, op_b)), 1, 1,
                                instr.alu.saturate_d, 0, true);
-            if (instr.generates_cc) {
-                LOG_CRITICAL(HW_GPU, "FMUL Generates an unhandled Control Code");
-                UNREACHABLE();
-            }
             break;
         }
         case OpCode::Id::FADD_C:
         case OpCode::Id::FADD_R:
         case OpCode::Id::FADD_IMM: {
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in FADD is not implemented");
+
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
 
             SetRegisterToFloat(instr.gpr0, 0, Emit(OpFAdd(t_float, op_a, op_b)), 1, 1,
                                instr.alu.saturate_d, 0, true);
-            if (instr.generates_cc) {
-                LOG_CRITICAL(HW_GPU, "FADD Generates an unhandled Control Code");
-                UNREACHABLE();
-            }
             break;
         }
         case OpCode::Id::MUFU: {
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in MUFU is not implemented");
+
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             const Id result = [&]() {
                 switch (instr.sub_op) {
@@ -651,9 +636,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                 case SubOp::Lg2:
                 case SubOp::Sqrt:
                 default:
-                    LOG_CRITICAL(HW_GPU, "Unhandled MUFU sub op: {0:x}",
-                                 static_cast<unsigned>(instr.sub_op.Value()));
-                    UNREACHABLE();
+                    UNIMPLEMENTED_MSG("Unhandled MUFU sub op: {0:x}",
+                                      static_cast<unsigned>(instr.sub_op.Value()));
                 }
             }();
             SetRegisterToFloat(instr.gpr0, 0, result, 1, 1, instr.alu.saturate_d, 0, true);
@@ -662,6 +646,9 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         case OpCode::Id::FMNMX_C:
         case OpCode::Id::FMNMX_R:
         case OpCode::Id::FMNMX_IMM: {
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in FMNMX is not implemented");
+
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
 
@@ -671,15 +658,10 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             const Id max = Emit(OpFMax(t_float, op_a, op_b));
             const Id value = Emit(OpSelect(t_float, condition, min, max));
             SetRegisterToFloat(instr.gpr0, 0, value, 1, 1, false, 0, true);
-            if (instr.generates_cc) {
-                LOG_CRITICAL(HW_GPU, "FMNMX Generates an unhandled Control Code");
-                UNREACHABLE();
-            }
             break;
         }
         default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled arithmetic instruction: {}", opcode->get().GetName());
-            UNREACHABLE();
+            UNIMPLEMENTED_MSG("Unhandled arithmetic instruction: {}", opcode->get().GetName());
         }
         }
         break;
@@ -700,11 +682,12 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         Id op_c;
         //= instr.ffma.negate_c ? "-" : "";
 
-        ASSERT_MSG(instr.ffma.cc == 0, "FFMA cc not implemented");
-        ASSERT_MSG(instr.ffma.tab5980_0 == 1, "FFMA tab5980_0({}) not implemented",
-                   instr.ffma.tab5980_0.Value()); // Seems to be 1 by default based on SMO
-        ASSERT_MSG(instr.ffma.tab5980_1 == 0, "FFMA tab5980_1({}) not implemented",
-                   instr.ffma.tab5980_1.Value());
+        UNIMPLEMENTED_IF_MSG(instr.ffma.tab5980_0 != 1, "FFMA tab5980_0({}) not implemented",
+                             instr.ffma.tab5980_0.Value()); // Seems to be 1 by default based on SMO
+        UNIMPLEMENTED_IF_MSG(instr.ffma.tab5980_1 != 0, "FFMA tab5980_1({}) not implemented",
+                             instr.ffma.tab5980_1.Value());
+        UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                             "Condition codes generation in FFMA is not implemented");
 
         switch (opcode->get().GetId()) {
         case OpCode::Id::FFMA_CR: {
@@ -727,18 +710,11 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             op_c = GetRegisterAsFloat(instr.gpr39);
             break;
         }
-        default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled FFMA instruction: {}", opcode->get().GetName());
-            UNREACHABLE();
-        }
+        default: { UNIMPLEMENTED_MSG("Unhandled FFMA instruction: {}", opcode->get().GetName()); }
         }
 
         SetRegisterToFloat(instr.gpr0, 0, Emit(OpFma(t_float, op_a, op_b, op_c)), 1, 1,
                            instr.alu.saturate_d, 0, true);
-        if (instr.generates_cc) {
-            LOG_CRITICAL(HW_GPU, "FFMA Generates an unhandled Control Code");
-            UNREACHABLE();
-        }
         break;
     }
     case OpCode::Type::Shift: {
@@ -759,6 +735,9 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         case OpCode::Id::SHR_C:
         case OpCode::Id::SHR_R:
         case OpCode::Id::SHR_IMM: {
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in SHR is not implemented");
+
             if (!instr.shift.is_signed) {
                 // Logical shift right
                 op_a = Emit(OpBitcast(t_uint, op_a));
@@ -776,10 +755,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetRegisterToInteger(instr.gpr0, true, 0, Emit(OpShiftLeftLogical(t_sint, op_a, op_b)),
                                  1, 1);
             break;
-        default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled shift instruction: {}", opcode->get().GetName());
-            UNREACHABLE();
-        }
+        default: { UNIMPLEMENTED_MSG("Unhandled shift instruction: {}", opcode->get().GetName()); }
         }
         break;
     }
@@ -787,10 +763,10 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         switch (opcode->get().GetId()) {
         case OpCode::Id::LD_A: {
             // Note: Shouldn't this be interp mode flat? As in no interpolation made.
-            ASSERT_MSG(instr.gpr8.Value() == Register::ZeroIndex,
-                       "Indirect attribute loads are not supported");
-            ASSERT_MSG((instr.attribute.fmt20.immediate.Value() % sizeof(u32)) == 0,
-                       "Unaligned attribute loads are not supported");
+            UNIMPLEMENTED_IF_MSG(instr.gpr8.Value() != Register::ZeroIndex,
+                                 "Indirect attribute loads are not supported");
+            UNIMPLEMENTED_IF_MSG((instr.attribute.fmt20.immediate.Value() % sizeof(u32)) != 0,
+                                 "Unaligned attribute loads are not supported");
 
             Tegra::Shader::IpaMode input_mode{Tegra::Shader::IpaInterpMode::Perspective,
                                               Tegra::Shader::IpaSampleMode::Default};
@@ -817,7 +793,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             break;
         }
         case OpCode::Id::LD_C: {
-            ASSERT_MSG(instr.ld_c.unknown == 0, "Unimplemented");
+            UNIMPLEMENTED_IF(instr.ld_c.unknown != 0);
 
             const Id index =
                 Emit(OpBitwiseAnd(t_uint,
@@ -841,17 +817,15 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                 break;
             }
             default:
-                LOG_CRITICAL(HW_GPU, "Unhandled type: {}",
-                             static_cast<u32>(instr.ld_c.type.Value()));
-                UNREACHABLE();
+                UNIMPLEMENTED_MSG("Unhandled type: {}", static_cast<u32>(instr.ld_c.type.Value()));
             }
             break;
         }
         case OpCode::Id::ST_A: {
-            ASSERT_MSG(instr.gpr8.Value() == Register::ZeroIndex,
-                       "Indirect attribute loads are not supported");
-            ASSERT_MSG((instr.attribute.fmt20.immediate.Value() % sizeof(u32)) == 0,
-                       "Unaligned attribute loads are not supported");
+            UNIMPLEMENTED_IF_MSG(instr.gpr8.Value() != Register::ZeroIndex,
+                                 "Indirect attribute loads are not supported");
+            UNIMPLEMENTED_IF_MSG((instr.attribute.fmt20.immediate.Value() % sizeof(u32)) != 0,
+                                 "Unaligned attribute loads are not supported");
 
             u64 next_element = instr.attribute.fmt20.element;
             auto next_index = static_cast<u64>(instr.attribute.fmt20.index.Value());
@@ -875,10 +849,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
             break;
         }
-        default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled memory instruction: {}", opcode->get().GetName());
-            UNREACHABLE();
-        }
+        default: { UNIMPLEMENTED_MSG("Unhandled memory instruction: {}", opcode->get().GetName()); }
         }
         break;
     }
@@ -907,9 +878,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                 break;
 
             default:
-                LOG_CRITICAL(HW_GPU, "Unhandled flow condition: {}",
-                             static_cast<u32>(instr.flow.cond.Value()));
-                UNREACHABLE();
+                UNIMPLEMENTED_MSG("Unhandled flow condition: {}",
+                                  static_cast<u32>(instr.flow.cond.Value()));
             }
             break;
         }
@@ -926,10 +896,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             }
             break;
         }
-        default: {
-            LOG_CRITICAL(HW_GPU, "Unhandled instruction: {}", opcode->get().GetName());
-            UNREACHABLE();
-        }
+        default: { UNIMPLEMENTED_MSG("Unhandled instruction: {}", opcode->get().GetName()); }
         }
     }
     }
@@ -985,7 +952,7 @@ void SpirvModule::DeclareBuiltIns() {
         fs.frag_coord = Declare(t_in_float4, spv::BuiltIn::FragCoord, "frag_coord");
         break;
     default:
-        UNREACHABLE_MSG("Unimplemented");
+        UNIMPLEMENTED();
     }
 }
 
