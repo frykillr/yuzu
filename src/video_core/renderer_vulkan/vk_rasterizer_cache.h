@@ -80,6 +80,7 @@ struct SurfaceParams {
     u32 block_width;
     u32 block_height;
     u32 block_depth;
+    u32 tile_width_spacing;
     PixelFormat pixel_format;
     ComponentType component_type;
     SurfaceType type;
@@ -107,8 +108,8 @@ public:
     void LoadVKBuffer();
     void FlushVKBuffer();
 
-    // Upload data in gl_buffer to this surface's texture
-    void UploadVKTexture();
+    // Upload data in vk_buffer to this surface's texture
+    void UploadVKTexture(vk::CommandBuffer cmdbuf);
 
     VAddr GetAddr() const override {
         return params.addr;
@@ -130,6 +131,10 @@ public:
         return vk_format;
     }
 
+    vk::ImageAspectFlags GetImageAspectFlags() const {
+        return vk_image_aspect;
+    }
+
 private:
     const vk::Device device;
     VKResourceManager& resource_manager;
@@ -149,6 +154,7 @@ private:
     std::size_t cached_size_in_bytes;
 
     vk::Format vk_format;
+    vk::ImageAspectFlags vk_image_aspect;
 };
 
 } // namespace Vulkan
@@ -182,10 +188,11 @@ public:
     ~VKRasterizerCache();
 
     /// Get the depth surface based on the framebuffer configuration
-    Surface GetDepthBufferSurface(bool preserve_contents);
+    Surface GetDepthBufferSurface(vk::CommandBuffer cmdbuf, bool preserve_contents);
 
     /// Get the color surface based on the framebuffer configuration and the specified render target
-    Surface GetColorBufferSurface(std::size_t index, bool preserve_contents);
+    Surface GetColorBufferSurface(std::size_t index, vk::CommandBuffer cmdbuf,
+                                  bool preserve_contents);
 
     /// Tries to find a framebuffer using on the provided CPU address
     Surface TryFindFramebufferSurface(VAddr addr) const;
@@ -195,8 +202,9 @@ private:
     VKResourceManager& resource_manager;
     VKMemoryManager& memory_manager;
 
-    void LoadSurface(const Surface& surface);
-    Surface GetSurface(const SurfaceParams& params, bool preserve_contents = true);
+    void LoadSurface(const Surface& surface, vk::CommandBuffer cmdbuf);
+    Surface GetSurface(const SurfaceParams& params, vk::CommandBuffer cmdbuf,
+                       bool preserve_contents = true);
 
     /// Gets an uncached surface, creating it if need be
     Surface GetUncachedSurface(const SurfaceParams& params);

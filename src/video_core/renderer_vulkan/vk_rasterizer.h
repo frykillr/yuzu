@@ -55,9 +55,9 @@ public:
 private:
     static constexpr u64 STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
 
-    FramebufferInfo ConfigureFramebuffers(VKFence& fence, vk::RenderPass renderpass,
-                                          bool using_color_fb = true, bool use_zeta_fb = true,
-                                          bool preserve_contents = true);
+    FramebufferInfo ConfigureFramebuffers(VKFence& fence, vk::CommandBuffer cmdbuf,
+                                          vk::RenderPass renderpass, bool using_color_fb = true,
+                                          bool use_zeta_fb = true, bool preserve_contents = true);
 
     void SetupVertexArrays(PipelineParams& params, PipelineState& state);
 

@@ -178,7 +178,10 @@ void RasterizerVulkan::DrawArrays() {
     buffer_cache->Reserve(buffer_size);
 
     SetupVertexArrays(params, state);
-    SetupIndexBuffer(state);
+    if (is_indexed) {
+        SetupIndexBuffer(state);
+    }
+
     Pipeline pipeline = shader_cache->GetPipeline(params);
 
     for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
@@ -191,13 +194,13 @@ void RasterizerVulkan::DrawArrays() {
         state.AddDescriptorSet(descriptor_set);
     }
 
-    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, pipeline.renderpass);
+    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
+
+    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, cmdbuf, pipeline.renderpass);
     const Surface& color_surface = fb_info.color_surfaces[0];
     const Surface& zeta_surface = fb_info.zeta_surface;
 
     state.UpdateDescriptorSets(device);
-
-    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
     buffer_cache->Send(fence, cmdbuf);
 
@@ -258,7 +261,7 @@ void RasterizerVulkan::Clear() {
 
     if (use_color) {
         Surface color_surface =
-            res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), false);
+            res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), cmdbuf, false);
 
         color_surface->Transition(
             cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
@@ -271,7 +274,7 @@ void RasterizerVulkan::Clear() {
             {vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)});
     }
     if (use_depth || use_stencil) {
-        Surface zeta_surface = res_cache->GetDepthBufferSurface(false);
+        Surface zeta_surface = res_cache->GetDepthBufferSurface(cmdbuf, false);
 
         // TODO(Rodrigo): Dehardcode this.
         const vk::ImageAspectFlags aspect =
@@ -329,17 +332,18 @@ bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
     return true;
 }
 
-FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::RenderPass renderpass,
+FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::CommandBuffer cmdbuf,
+                                                        vk::RenderPass renderpass,
                                                         bool using_color_fb, bool using_zeta_fb,
                                                         bool preserve_contents) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
     Surface color_surface, zeta_surface;
     if (using_color_fb) {
-        color_surface = res_cache->GetColorBufferSurface(0, preserve_contents);
+        color_surface = res_cache->GetColorBufferSurface(0, cmdbuf, preserve_contents);
     }
     if (using_zeta_fb) {
-        zeta_surface = res_cache->GetDepthBufferSurface(preserve_contents);
+        zeta_surface = res_cache->GetDepthBufferSurface(cmdbuf, preserve_contents);
     }
 
     FramebufferCacheKey fbkey;
