@@ -42,22 +42,26 @@ class ConstBufferEntry {
     using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 public:
-    void MarkAsUsed(u32& binding, u64 index, u64 offset, Maxwell::ShaderStage stage) {
-        if (!is_used)
-            this->binding = binding++;
+    u32 MarkAsUsed(u32 binding_, u64 index_, u64 offset, Maxwell::ShaderStage stage_) {
+        if (!is_used) {
+            binding = binding_++;
+        }
         is_used = true;
-        this->index = static_cast<unsigned>(index);
-        this->stage = stage;
+        index = static_cast<u32>(index_);
+        stage = stage_;
         max_offset = std::max(max_offset, static_cast<u32>(offset));
+        return binding_;
     }
 
-    void MarkAsUsedIndirect(u32& binding, u64 index, Maxwell::ShaderStage stage) {
-        if (!is_used)
-            this->binding = binding++;
+    u32 MarkAsUsedIndirect(u32 binding_, u64 index_, Maxwell::ShaderStage stage_) {
+        if (!is_used) {
+            binding = binding_++;
+        }
         is_used = true;
         is_indirect = true;
-        this->index = static_cast<u32>(index);
-        this->stage = stage;
+        index = static_cast<u32>(index_);
+        stage = stage_;
+        return binding_;
     }
 
     bool IsUsed() const {
@@ -86,18 +90,7 @@ private:
     u32 index{};
     u32 max_offset{};
     u32 binding{};
-    Maxwell::ShaderStage stage;
-};
-
-struct ShaderEntries {
-    u32 descriptor_set;
-    std::vector<ConstBufferEntry> const_buffers;
-    std::set<u32> attributes;
-};
-
-struct ProgramResult {
-    std::vector<u8> code;
-    ShaderEntries entries;
+    Maxwell::ShaderStage stage{};
 };
 
 class SamplerEntry {
@@ -148,6 +141,18 @@ private:
     Tegra::Shader::TextureType type; ///< The type used to sample this texture (Texture2D, etc)
     bool is_array;  ///< Whether the texture is being sampled as an array texture or not.
     bool is_shadow; ///< Whether the texture is being sampled as a depth texture or not.
+};
+
+struct ShaderEntries {
+    u32 descriptor_set;
+    std::vector<ConstBufferEntry> const_buffers;
+    std::vector<SamplerEntry> samplers;
+    std::set<u32> attributes;
+};
+
+struct ProgramResult {
+    std::vector<u8> code;
+    ShaderEntries entries;
 };
 
 /**

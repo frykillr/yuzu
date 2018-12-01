@@ -280,6 +280,7 @@ private:
     vk::UniqueRenderPass CreateRenderPass(const PipelineParams& params) const;
 
     std::unordered_map<CacheKey, std::unique_ptr<CacheEntry>, HashFn> cache;
+    vk::UniqueDescriptorSetLayout empty_set_layout;
 };
 
 } // namespace Vulkan

@@ -21,6 +21,8 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
@@ -49,10 +51,10 @@ struct FramebufferCacheKey {
 
 class PipelineState {
 public:
-    void AddDescriptorSet(vk::DescriptorSet descriptor_set) {
+    void AssignDescriptorSet(u32 stage, vk::DescriptorSet descriptor_set) {
         // A null descriptor set means that the stage is not using descriptors, it must be skipped.
         if (descriptor_set) {
-            descriptor_sets.Push(descriptor_set);
+            descriptor_sets[stage] = descriptor_set;
         }
     }
 
@@ -79,9 +81,12 @@ public:
     }
 
     void BindDescriptors(vk::CommandBuffer cmdbuf, vk::PipelineLayout layout) const {
-        cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout, 0,
-                                  static_cast<u32>(descriptor_sets.Size()), descriptor_sets.data(),
-                                  0, nullptr);
+        for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
+            if (const auto descriptor_set = descriptor_sets[stage]; descriptor_set) {
+                cmdbuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, layout,
+                                          static_cast<u32>(stage), 1, &descriptor_set, 0, nullptr);
+            }
+        }
     }
 
     void BindVertexBuffers(vk::CommandBuffer cmdbuf) const {
@@ -107,7 +112,7 @@ private:
     vk::DeviceSize index_offset{};
     vk::IndexType index_type{};
 
-    StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSet> descriptor_sets;
+    std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
 
     u32 descriptor_bindings_count{};
     std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_BINDINGS> descriptor_bindings;
@@ -191,7 +196,7 @@ void RasterizerVulkan::DrawArrays() {
 
         const auto descriptor_set = shader->CommitDescriptorSet(fence);
         SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
-        state.AddDescriptorSet(descriptor_set);
+        state.AssignDescriptorSet(stage, descriptor_set);
     }
 
     const vk::CommandBuffer cmdbuf = sched.BeginRecord();

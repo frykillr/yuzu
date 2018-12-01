@@ -51,6 +51,9 @@ public:
                              static_cast<u32>(Attribute::Index::Attribute_0)};
             entries.attributes.insert(index);
         }
+        for (const auto& sampler : used_samplers) {
+            entries.samplers.push_back(sampler.entry);
+        }
         return entries;
     }
 

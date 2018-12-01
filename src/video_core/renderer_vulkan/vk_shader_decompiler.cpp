@@ -337,16 +337,16 @@ Id SpirvModule::GetSampler(const Sampler& sampler, Tegra::Shader::TextureType ty
     }
 
     // Otherwise create a new mapping for this sampler
+    const std::size_t next_index = used_samplers.size();
     const Id spv_type = OpTypeSampledImage(
-        OpTypeImage(t_float, spv::Dim::Dim2D, 0, false, false, 0, spv::ImageFormat::Unknown));
-    const Id variable =
-        AddGlobalVariable(OpVariable(OpTypePointer(spv::StorageClass::UniformConstant, spv_type),
-                                     spv::StorageClass::UniformConstant));
+        OpTypeImage(t_float, spv::Dim::Dim2D, 0, false, false, 1, spv::ImageFormat::Unknown));
+    const Id variable = AddGlobalVariable(
+        Name(OpVariable(OpTypePointer(spv::StorageClass::UniformConstant, spv_type),
+                        spv::StorageClass::UniformConstant),
+             fmt::format("sampler{}", next_index)));
     const u32 current_binding = binding++;
     Decorate(variable, spv::Decoration::Binding, {current_binding});
     Decorate(variable, spv::Decoration::DescriptorSet, {descriptor_set});
-
-    const std::size_t next_index = used_samplers.size();
 
     used_samplers.emplace_back(ShaderSampler(
         SamplerEntry(stage, current_binding, offset, next_index, type, is_array, is_shadow),
@@ -364,7 +364,7 @@ Id SpirvModule::GetImmediate32(const Instruction& instr) {
 
 Id SpirvModule::GetUniform(u64 cbuf_index, u64 offset, Id type, Register::Size size) {
     const Id cbuf = DeclareUniform(cbuf_index);
-    declr_const_buffers[cbuf_index].MarkAsUsed(binding, cbuf_index, offset, stage);
+    binding = declr_const_buffers[cbuf_index].MarkAsUsed(binding, cbuf_index, offset, stage);
 
     const Id subindex = Constant(t_sint, static_cast<s32>(offset / 4));
     const Id elem = Constant(t_sint, static_cast<s32>(offset % 4));
@@ -379,7 +379,7 @@ Id SpirvModule::GetUniform(u64 cbuf_index, u64 offset, Id type, Register::Size s
 
 Id SpirvModule::GetUniformIndirect(u64 cbuf_index, s64 offset, Id index, Id type) {
     const Id cbuf = DeclareUniform(cbuf_index);
-    declr_const_buffers[cbuf_index].MarkAsUsedIndirect(binding, cbuf_index, stage);
+    binding = declr_const_buffers[cbuf_index].MarkAsUsedIndirect(binding, cbuf_index, stage);
 
     const Id final_offset =
         Emit(OpIAdd(t_uint, index, Constant(t_uint, static_cast<u32>(offset / 4))));

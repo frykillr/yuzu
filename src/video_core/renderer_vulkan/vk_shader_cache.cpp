@@ -16,6 +16,8 @@
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 // How many sets are created per descriptor pool.
@@ -133,10 +135,16 @@ vk::DescriptorSet CachedShader::CommitDescriptorSet(VKFence& fence) {
 }
 
 void CachedShader::CreateDescriptorSetLayout() {
+    const vk::ShaderStageFlags stage = MaxwellToVK::ShaderStage(GetStageFromProgram(program_type));
+
     std::vector<vk::DescriptorSetLayoutBinding> bindings;
     for (const auto& cbuf_entry : entries.const_buffers) {
-        bindings.push_back({cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1,
-                            MaxwellToVK::ShaderStage(GetStageFromProgram(program_type)), nullptr});
+        bindings.push_back(
+            {cbuf_entry.GetBinding(), vk::DescriptorType::eUniformBuffer, 1, stage, nullptr});
+    }
+    for (const auto& sampler_entry : entries.samplers) {
+        bindings.push_back({sampler_entry.GetBinding(), vk::DescriptorType::eCombinedImageSampler,
+                            1, stage, nullptr});
     }
 
     descriptor_set_layout = device.createDescriptorSetLayoutUnique(
@@ -146,14 +154,14 @@ void CachedShader::CreateDescriptorSetLayout() {
 void CachedShader::CreateDescriptorPool() {
     std::vector<vk::DescriptorPoolSize> pool_sizes;
 
-    if (u32 used_ubos = static_cast<u32>(entries.const_buffers.size()); used_ubos > 0) {
-        pool_sizes.push_back(
-            vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, used_ubos * SETS_PER_POOL));
-    }
-    if (u32 used_attrs = static_cast<u32>(entries.attributes.size()); used_attrs > 0) {
-        pool_sizes.push_back(vk::DescriptorPoolSize(vk::DescriptorType::eInputAttachment,
-                                                    used_attrs * SETS_PER_POOL));
-    }
+    const auto PushSize = [&](vk::DescriptorType descriptor_type, std::size_t size) {
+        if (size > 0) {
+            pool_sizes.push_back({descriptor_type, static_cast<u32>(size) * SETS_PER_POOL});
+        }
+    };
+    PushSize(vk::DescriptorType::eUniformBuffer, entries.const_buffers.size());
+    PushSize(vk::DescriptorType::eInputAttachment, entries.attributes.size());
+    PushSize(vk::DescriptorType::eCombinedImageSampler, entries.samplers.size());
 
     if (pool_sizes.size() == 0) {
         // If the shader doesn't use descriptor sets, skip the pool creation.
@@ -165,7 +173,10 @@ void CachedShader::CreateDescriptorPool() {
 
 VKShaderCache::VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler)
     : RasterizerCache{rasterizer},
-      device_handler{device_handler}, device{device_handler.GetLogical()} {}
+      device_handler{device_handler}, device{device_handler.GetLogical()} {
+
+    empty_set_layout = device.createDescriptorSetLayoutUnique({{}, 0, nullptr});
+}
 
 Pipeline VKShaderCache::GetPipeline(const PipelineParams& params) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
@@ -247,15 +258,14 @@ void VKShaderCache::ObjectInvalidated(const Shader& shader) {
 
 vk::UniquePipelineLayout VKShaderCache::CreatePipelineLayout(const PipelineParams& params,
                                                              const Pipeline& pipeline) const {
-    StaticVector<Maxwell::MaxShaderStage, vk::DescriptorSetLayout> set_layouts;
-    for (auto& shader : pipeline.shaders) {
-        if (shader != nullptr) {
-            set_layouts.Push(shader->GetDescriptorSetLayout());
-        }
+    std::array<vk::DescriptorSetLayout, Maxwell::MaxShaderStage> set_layouts{};
+    for (std::size_t i = 0; i < Maxwell::MaxShaderStage; ++i) {
+        const auto& shader = pipeline.shaders[i];
+        set_layouts[i] = shader != nullptr ? shader->GetDescriptorSetLayout() : *empty_set_layout;
     }
 
     return device.createPipelineLayoutUnique(
-        {{}, static_cast<u32>(set_layouts.Size()), set_layouts.data(), 0, nullptr});
+        {{}, static_cast<u32>(set_layouts.size()), set_layouts.data(), 0, nullptr});
 }
 
 vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,

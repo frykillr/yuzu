@@ -48,11 +48,11 @@ static vk::ImageViewType SurfaceTargetToImageViewVK(SurfaceTarget target) {
 }
 
 static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
-    if (pixel_format <= PixelFormat::MaxColorFormat) {
+    if (pixel_format < PixelFormat::MaxColorFormat) {
         return vk::ImageAspectFlagBits::eColor;
-    } else if (pixel_format <= PixelFormat::MaxDepthFormat) {
+    } else if (pixel_format < PixelFormat::MaxDepthFormat) {
         return vk::ImageAspectFlagBits::eDepth;
-    } else if (pixel_format <= PixelFormat::MaxDepthStencilFormat) {
+    } else if (pixel_format < PixelFormat::MaxDepthStencilFormat) {
         return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
     } else {
         UNREACHABLE_MSG("Invalid pixel format={}", static_cast<u32>(pixel_format));
@@ -293,8 +293,19 @@ void CachedSurface::UploadVKTexture(vk::CommandBuffer cmdbuf) {
     Transition(cmdbuf, vk_image_aspect, vk::ImageLayout::eTransferDstOptimal,
                vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
-    const vk::BufferImageCopy copy(0, 0, 0, {{}, 0, 0, 1}, {0, 0, 0}, {params.width, params.height, params.depth});
-    cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal, {copy});
+    const vk::BufferImageCopy copy(0, 0, 0, {vk_image_aspect, 0, 0, 1}, {0, 0, 0},
+                                   {params.width, params.height, params.depth});
+    if (vk_image_aspect == (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
+        vk::BufferImageCopy depth = copy;
+        vk::BufferImageCopy stencil = copy;
+        depth.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
+        stencil.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eStencil;
+
+        cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal,
+                                 {depth, stencil});
+    } else {
+        cmdbuf.copyBufferToImage(*buffer, image, vk::ImageLayout::eTransferDstOptimal, {copy});
+    }
 }
 
 VKRasterizerCache::VKRasterizerCache(RasterizerVulkan& rasterizer, VKDevice& device_handler,
