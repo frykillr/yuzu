@@ -263,7 +263,7 @@ void SpirvModule::SetRegisterToInputAttibute(const Register& reg, u64 elem,
                                              std::optional<Register> vertex) {
     const Id float4_input = GetInputAttribute(attribute, input_mode, vertex);
     const Id src = Emit(OpCompositeExtract(t_float, float4_input, {static_cast<u32>(elem)}));
-    SetRegisterToFloat(reg, 0, src, 1, 1);
+    SetRegisterToFloat(reg, 0, src);
 }
 
 void SpirvModule::SetOutputAttributeToRegister(Attribute::Index attribute, u64 elem,
@@ -295,7 +295,7 @@ void SpirvModule::SetOutputAttributeToRegister(Attribute::Index attribute, u64 e
 }
 
 void SpirvModule::SetRegister(const Register& reg, u32 elem, Id value, bool precise) {
-    const Id dest = regs[reg.GetSwizzledIndex(elem)];
+    const Id dest = regs[reg.GetSwizzledIndex(static_cast<u64>(elem))];
     const Id src = value;
 
     // ASSERT_MSG(!precise, "Unimplemented");
@@ -693,7 +693,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
     case OpCode::Type::ArithmeticImmediate: {
         switch (opcode->get().GetId()) {
         case OpCode::Id::MOV32_IMM: {
-            SetRegisterToFloat(instr.gpr0, 0, GetImmediate32(instr), 1, 1);
+            SetRegisterToFloat(instr.gpr0, 0, GetImmediate32(instr));
             break;
         }
         }
@@ -876,14 +876,14 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
             switch (instr.ld_c.type.Value()) {
             case Tegra::Shader::UniformType::Single:
-                SetRegisterToFloat(instr.gpr0, 0, op_a, 1, 1);
+                SetRegisterToFloat(instr.gpr0, 0, op_a);
                 break;
 
             case Tegra::Shader::UniformType::Double: {
                 const Id op_b =
                     GetUniformIndirect(instr.cbuf36.index, instr.cbuf36.offset + 4, index, t_float);
-                SetRegisterToFloat(instr.gpr0, 0, op_a, 1, 1);
-                SetRegisterToFloat(instr.gpr0.Value() + 1, 0, op_b, 1, 1);
+                SetRegisterToFloat(instr.gpr0, 0, op_a);
+                SetRegisterToFloat(instr.gpr0.Value() + 1, 0, op_b);
                 break;
             }
             default:
@@ -935,11 +935,11 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
                 if (written_components < 2) {
                     // Write the first two swizzle components to gpr0 and gpr0+1
-                    SetRegisterToFloat(instr.gpr0, written_components % 2, tex_component, false);
+                    SetRegisterToFloat(instr.gpr0, written_components % 2, tex_component);
                 } else {
                     ASSERT(instr.texs.HasTwoDestinations());
                     // Write the rest of the swizzle components to gpr28 and gpr28+1
-                    SetRegisterToFloat(instr.gpr28, written_components % 2, tex_component, false);
+                    SetRegisterToFloat(instr.gpr28, written_components % 2, tex_component);
                 }
 
                 ++written_components;
