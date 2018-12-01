@@ -162,7 +162,8 @@ void GPU::CallMethod(const MethodCall& method_call) {
         kepler_memory->CallMethod(method_call);
         break;
     default:
-        UNIMPLEMENTED_MSG("Unimplemented engine");
+        //UNIMPLEMENTED_MSG("Unimplemented engine");
+        ;
     }
 }
 

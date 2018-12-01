@@ -60,6 +60,15 @@ private:
         Tegra::Shader::IpaMode input_mode;
     };
 
+    struct ShaderSampler {
+        ShaderSampler(const SamplerEntry& entry, Id variable, Id type)
+            : entry{entry}, variable{variable}, type{type} {}
+
+        SamplerEntry entry;
+        Id variable;
+        Id type;
+    };
+
     Id Generate(const std::set<Subroutine> subroutines);
 
     /**
@@ -131,13 +140,10 @@ private:
      * @param reg The destination register to use.
      * @param elem The element to use for the operation.
      * @param value The code representing the value to assign.
-     * @param dest_num_components Number of components in the destination.
-     * @param value_num_components Number of components in the value.
      * @param is_saturated Optional, when True, saturates the provided value.
-     * @param dest_elem Optional, the destination element to use for the operation.
+     * @param precise Optional, when true the operation uses a precise decoration.
      */
-    void SetRegisterToFloat(const Register& reg, u64 elem, Id value, u64 dest_num_components,
-                            u64 value_num_components, bool is_saturated = false, u64 dest_elem = 0,
+    void SetRegisterToFloat(const Register& reg, u32 elem, Id value, bool is_saturated = false,
                             bool precise = false);
 
     /**
@@ -145,16 +151,12 @@ private:
      * @param reg The destination register to use.
      * @param elem The element to use for the operation.
      * @param value The code representing the value to assign.
-     * @param dest_num_components Number of components in the destination.
-     * @param value_num_components Number of components in the value.
      * @param is_saturated Optional, when True, saturates the provided value.
-     * @param dest_elem Optional, the destination element to use for the operation.
      * @param size Register size to use for conversion instructions.
      */
-    void SetRegisterToInteger(const Register& reg, bool is_signed, u64 elem, Id value,
-                              u64 dest_num_components, u64 value_num_components,
-                              bool is_saturated = false, u64 dest_elem = 0,
-                              Register::Size size = Register::Size::Word, bool sets_cc = false);
+    void SetRegisterToInteger(const Register& reg, bool is_signed, u32 elem, Id value,
+                              bool is_saturated = false,
+                              Register::Size size = Register::Size::Word);
 
     /**
      * Writes code that does a register assignment to input attribute operation. Input attributes
@@ -189,8 +191,7 @@ private:
      * @param value_num_components Number of components in the value.
      * @param dest_elem Optional, the destination element to use for the operation.
      */
-    void SetRegister(const Register& reg, u64 elem, Id value, u64 dest_num_components,
-                     u64 value_num_components, u64 dest_elem, bool precise);
+    void SetRegister(const Register& reg, u32 elem, Id value, bool precise);
 
     /*
      * Returns the condition to use in the 'if' for a predicated instruction.
@@ -201,6 +202,10 @@ private:
 
     /// Gets a predicate value.
     Id GetPredicate(u64 index);
+
+    /// Gets (and allocates) the sampler for the asked parameters.
+    Id GetSampler(const Tegra::Shader::Sampler& sampler, Tegra::Shader::TextureType type,
+                  bool is_array, bool is_shadow);
 
     /// Generates code representing a 19-bit immediate value.
     Id GetImmediate19(const Instruction& instr);
@@ -271,17 +276,18 @@ private:
 
     struct {
         Id frag_coord{};
-        std::array<Id, Maxwell3D::Regs::NumRenderTargets> frag_colors;
+        std::array<Id, Maxwell3D::Regs::NumRenderTargets> frag_colors{};
         Id frag_depth{};
     } fs;
 
     std::vector<Id> regs;
     std::vector<Id> predicates;
-    std::array<Id, Maxwell3D::Regs::MaxConstBuffers> cbufs;
+    std::array<Id, Maxwell3D::Regs::MaxConstBuffers> cbufs{};
 
     std::unordered_map<u32, Id> output_attrs;
     std::unordered_map<Attribute::Index, InputAttributeEntry> declr_input_attribute;
     std::array<ConstBufferEntry, Maxwell3D::Regs::MaxConstBuffers> declr_const_buffers;
+    std::vector<ShaderSampler> used_samplers;
 
     const Id t_void = Name(OpTypeVoid(), "void");
     const Id t_bool = Name(OpTypeBool(), "bool");
@@ -289,6 +295,8 @@ private:
     const Id t_sint = Name(OpTypeInt(32, true), "sint");
     const Id t_uint = Name(OpTypeInt(32, false), "uint");
 
+    const Id t_float2 = Name(OpTypeVector(t_float, 2), "float2");
+    const Id t_float3 = Name(OpTypeVector(t_float, 3), "float3");
     const Id t_float4 = Name(OpTypeVector(t_float, 4), "float4");
 
     const Id t_prv_bool = Name(OpTypePointer(spv::StorageClass::Private, t_bool), "prv_bool");
@@ -311,7 +319,8 @@ private:
 
     const Id t_bool_function = OpTypeFunction(t_bool);
 
-    const Id v_float_zero = ConstantNull(t_float);
+    const Id v_float_zero = Constant(t_float, 0.f);
+    const Id v_float_one = Constant(t_float, 1.f);
     const Id v_float4_zero = ConstantNull(t_float4);
     const Id v_true = ConstantTrue(t_bool);
     const Id v_false = ConstantFalse(t_bool);

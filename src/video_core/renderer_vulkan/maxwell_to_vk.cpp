@@ -148,6 +148,8 @@ vk::Format VertexFormat(Maxwell::VertexAttribute::Type type, Maxwell::VertexAttr
             return vk::Format::eR32G32B32Sfloat;
         case Maxwell::VertexAttribute::Size::Size_32_32:
             return vk::Format::eR32G32Sfloat;
+        case Maxwell::VertexAttribute::Size::Size_32:
+            return vk::Format::eR32Sfloat;
         }
         break;
     }

@@ -239,25 +239,22 @@ Id SpirvModule::GetInputAttribute(Attribute::Index attribute,
     return v_float4_zero;
 }
 
-void SpirvModule::SetRegisterToFloat(const Register& reg, u64 elem, Id value,
-                                     u64 dest_num_components, u64 value_num_components,
-                                     bool is_saturated, u64 dest_elem, bool precise) {
-    UNIMPLEMENTED_IF(is_saturated);
-
-    SetRegister(reg, elem, value, dest_num_components, value_num_components, dest_elem, precise);
+void SpirvModule::SetRegisterToFloat(const Register& reg, u32 elem, Id value, bool is_saturated,
+                                     bool precise) {
+    if (is_saturated) {
+        value = Emit(OpFClamp(t_float, value, v_float_zero, v_float_one));
+    }
+    SetRegister(reg, elem, value, precise);
 }
 
-void SpirvModule::SetRegisterToInteger(const Register& reg, bool is_signed, u64 elem, Id value,
-                                       u64 dest_num_components, u64 value_num_components,
-                                       bool is_saturated, u64 dest_elem, Register::Size size,
-                                       bool sets_cc) {
+void SpirvModule::SetRegisterToInteger(const Register& reg, bool is_signed, u32 elem, Id value,
+                                       bool is_saturated, Register::Size size) {
     UNIMPLEMENTED_IF(is_saturated);
-    UNIMPLEMENTED_IF(sets_cc);
 
     const Id src_type{is_signed ? t_sint : t_uint};
     const Id src = Emit(OpBitcast(t_float, ConvertIntegerSize(src_type, value, size)));
 
-    SetRegister(reg, elem, src, dest_num_components, value_num_components, dest_elem, false);
+    SetRegister(reg, elem, src, false);
 }
 
 void SpirvModule::SetRegisterToInputAttibute(const Register& reg, u64 elem,
@@ -297,19 +294,9 @@ void SpirvModule::SetOutputAttributeToRegister(Attribute::Index attribute, u64 e
     Emit(OpStore(dest, GetRegisterAsFloat(val_reg)));
 }
 
-void SpirvModule::SetRegister(const Register& reg, u64 elem, Id value, u64 dest_num_components,
-                              u64 value_num_components, u64 dest_elem, bool precise) {
-    Id dest = regs[reg.GetSwizzledIndex(elem)];
-    if (dest_num_components > 1) {
-        dest =
-            Emit(OpAccessChain(t_prv_float, dest, {Constant(t_uint, static_cast<u32>(dest_elem))}));
-    }
-
-    Id src = value;
-    if (value_num_components > 1) {
-        const Id elem_index = Constant(t_uint, static_cast<u32>(elem));
-        src = Emit(OpLoad(t_float, Emit(OpAccessChain(t_prv_float, dest, {elem_index}))));
-    }
+void SpirvModule::SetRegister(const Register& reg, u32 elem, Id value, bool precise) {
+    const Id dest = regs[reg.GetSwizzledIndex(elem)];
+    const Id src = value;
 
     // ASSERT_MSG(!precise, "Unimplemented");
 
@@ -328,6 +315,43 @@ Id SpirvModule::GetPredicateCondition(u64 index, bool negate) {
 Id SpirvModule::GetPredicate(u64 index) {
     ASSERT(index < PRED_COUNT);
     return Emit(OpLoad(t_bool, predicates[index]));
+}
+
+Id SpirvModule::GetSampler(const Sampler& sampler, Tegra::Shader::TextureType type, bool is_array,
+                           bool is_shadow) {
+    UNIMPLEMENTED_IF(type != Tegra::Shader::TextureType::Texture2D);
+    UNIMPLEMENTED_IF(is_array);
+    UNIMPLEMENTED_IF(is_shadow);
+
+    const auto offset = static_cast<std::size_t>(sampler.index.Value());
+
+    // If this sampler has already been used, return the existing mapping.
+    const auto itr =
+        std::find_if(used_samplers.begin(), used_samplers.end(),
+                     [&](const auto& entry) { return entry.entry.GetOffset() == offset; });
+
+    if (itr != used_samplers.end()) {
+        ASSERT(itr->entry.GetType() == type && itr->entry.IsArray() == is_array &&
+               itr->entry.IsShadow() == is_shadow);
+        return Emit(OpLoad(itr->type, itr->variable));
+    }
+
+    // Otherwise create a new mapping for this sampler
+    const Id spv_type = OpTypeSampledImage(
+        OpTypeImage(t_float, spv::Dim::Dim2D, 0, false, false, 0, spv::ImageFormat::Unknown));
+    const Id variable =
+        AddGlobalVariable(OpVariable(OpTypePointer(spv::StorageClass::UniformConstant, spv_type),
+                                     spv::StorageClass::UniformConstant));
+    const u32 current_binding = binding++;
+    Decorate(variable, spv::Decoration::Binding, {current_binding});
+    Decorate(variable, spv::Decoration::DescriptorSet, {descriptor_set});
+
+    const std::size_t next_index = used_samplers.size();
+
+    used_samplers.emplace_back(ShaderSampler(
+        SamplerEntry(stage, current_binding, offset, next_index, type, is_array, is_shadow),
+        variable, spv_type));
+    return Emit(OpLoad(spv_type, variable));
 }
 
 Id SpirvModule::GetImmediate19(const Instruction& instr) {
@@ -582,7 +606,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         case OpCode::Id::MOV_C:
         case OpCode::Id::MOV_R: {
             // MOV does not have neither 'abs' nor 'neg' bits.
-            SetRegisterToFloat(instr.gpr0, 0, op_b, 1, 1);
+            SetRegisterToFloat(instr.gpr0, 0, op_b);
             break;
         }
         case OpCode::Id::FMUL_C:
@@ -602,8 +626,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
             op_b = GetFloatOperandAbsNeg(op_b, false, instr.fmul.negate_b);
 
-            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFMul(t_float, op_a, op_b)), 1, 1,
-                               instr.alu.saturate_d, 0, true);
+            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFMul(t_float, op_a, op_b)),
+                               instr.alu.saturate_d, true);
             break;
         }
         case OpCode::Id::FADD_C:
@@ -615,8 +639,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
 
-            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFAdd(t_float, op_a, op_b)), 1, 1,
-                               instr.alu.saturate_d, 0, true);
+            SetRegisterToFloat(instr.gpr0, 0, Emit(OpFAdd(t_float, op_a, op_b)),
+                               instr.alu.saturate_d, true);
             break;
         }
         case OpCode::Id::MUFU: {
@@ -640,7 +664,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                                       static_cast<unsigned>(instr.sub_op.Value()));
                 }
             }();
-            SetRegisterToFloat(instr.gpr0, 0, result, 1, 1, instr.alu.saturate_d, 0, true);
+            SetRegisterToFloat(instr.gpr0, 0, result, instr.alu.saturate_d, true);
             break;
         }
         case OpCode::Id::FMNMX_C:
@@ -657,7 +681,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             const Id min = Emit(OpFMin(t_float, op_a, op_b));
             const Id max = Emit(OpFMax(t_float, op_a, op_b));
             const Id value = Emit(OpSelect(t_float, condition, min, max));
-            SetRegisterToFloat(instr.gpr0, 0, value, 1, 1, false, 0, true);
+            SetRegisterToFloat(instr.gpr0, 0, value, false, true);
             break;
         }
         default: {
@@ -672,6 +696,51 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetRegisterToFloat(instr.gpr0, 0, GetImmediate32(instr), 1, 1);
             break;
         }
+        }
+        break;
+    }
+    case OpCode::Type::Conversion: {
+        switch (opcode->get().GetId()) {
+        case OpCode::Id::F2F_R: {
+            UNIMPLEMENTED_IF(instr.conversion.dest_size != Register::Size::Word);
+            UNIMPLEMENTED_IF(instr.conversion.src_size != Register::Size::Word);
+            UNIMPLEMENTED_IF_MSG(instr.generates_cc,
+                                 "Condition codes generation in F2F is not implemented");
+            Id op_a = GetRegisterAsFloat(instr.gpr20);
+
+            if (instr.conversion.abs_a) {
+                op_a = Emit(OpFAbs(t_float, op_a));
+            }
+
+            if (instr.conversion.negate_a) {
+                op_a = Emit(OpFNegate(t_float, op_a));
+            }
+
+            op_a = [&]() {
+                switch (instr.conversion.f2f.rounding) {
+                case Tegra::Shader::F2fRoundingOp::None:
+                    return op_a;
+                case Tegra::Shader::F2fRoundingOp::Round:
+                    return Emit(OpRoundEven(t_float, op_a));
+                case Tegra::Shader::F2fRoundingOp::Floor:
+                    return Emit(OpFloor(t_float, op_a));
+                case Tegra::Shader::F2fRoundingOp::Ceil:
+                    return Emit(OpCeil(t_float, op_a));
+                case Tegra::Shader::F2fRoundingOp::Trunc:
+                    return Emit(OpTrunc(t_float, op_a));
+                default:
+                    UNIMPLEMENTED_MSG("Unimplemented F2F rounding mode {}",
+                                      static_cast<u32>(instr.conversion.f2f.rounding.Value()));
+                    return op_a;
+                }
+            }();
+
+            SetRegisterToFloat(instr.gpr0, 0, op_a, instr.alu.saturate_d);
+            break;
+        }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled conversion instruction: {}", opcode->get().GetName());
+            break;
         }
         break;
     }
@@ -713,8 +782,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         default: { UNIMPLEMENTED_MSG("Unhandled FFMA instruction: {}", opcode->get().GetName()); }
         }
 
-        SetRegisterToFloat(instr.gpr0, 0, Emit(OpFma(t_float, op_a, op_b, op_c)), 1, 1,
-                           instr.alu.saturate_d, 0, true);
+        SetRegisterToFloat(instr.gpr0, 0, Emit(OpFma(t_float, op_a, op_b, op_c)),
+                           instr.alu.saturate_d, true);
         break;
     }
     case OpCode::Type::Shift: {
@@ -746,16 +815,17 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             // Cast to int is superfluous for arithmetic shift, it's only for a logical shift
             const Id value =
                 Emit(OpBitcast(t_sint, Emit(OpShiftRightArithmetic(t_uint, op_a, op_b))));
-            SetRegisterToInteger(instr.gpr0, true, 0, value, 1, 1);
+            SetRegisterToInteger(instr.gpr0, true, 0, value);
             break;
         }
         case OpCode::Id::SHL_C:
         case OpCode::Id::SHL_R:
         case OpCode::Id::SHL_IMM:
-            SetRegisterToInteger(instr.gpr0, true, 0, Emit(OpShiftLeftLogical(t_sint, op_a, op_b)),
-                                 1, 1);
+            SetRegisterToInteger(instr.gpr0, true, 0, Emit(OpShiftLeftLogical(t_sint, op_a, op_b)));
             break;
-        default: { UNIMPLEMENTED_MSG("Unhandled shift instruction: {}", opcode->get().GetName()); }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled shift instruction: {}", opcode->get().GetName());
+            break;
         }
         break;
     }
@@ -849,7 +919,36 @@ u32 SpirvModule::CompileInstr(u32 offset) {
 
             break;
         }
-        default: { UNIMPLEMENTED_MSG("Unhandled memory instruction: {}", opcode->get().GetName()); }
+        case OpCode::Id::TEXS: {
+            const Id coords = Emit(OpCompositeConstruct(
+                t_float2, {GetRegisterAsFloat(instr.gpr8), GetRegisterAsFloat(instr.gpr20)}));
+            const Id sampler =
+                GetSampler(instr.sampler, Tegra::Shader::TextureType::Texture2D, false, false);
+            const Id texture = Emit(OpImageSampleImplicitLod(t_float4, sampler, coords));
+
+            u32 written_components = 0;
+            for (u32 component = 0; component < 4; ++component) {
+                if (!instr.texs.IsComponentEnabled(component)) {
+                    continue;
+                }
+                const Id tex_component = Emit(OpCompositeExtract(t_float, texture, {component}));
+
+                if (written_components < 2) {
+                    // Write the first two swizzle components to gpr0 and gpr0+1
+                    SetRegisterToFloat(instr.gpr0, written_components % 2, tex_component, false);
+                } else {
+                    ASSERT(instr.texs.HasTwoDestinations());
+                    // Write the rest of the swizzle components to gpr28 and gpr28+1
+                    SetRegisterToFloat(instr.gpr28, written_components % 2, tex_component, false);
+                }
+
+                ++written_components;
+            }
+            break;
+        }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled memory instruction: {}", opcode->get().GetName());
+            break;
         }
         break;
     }
@@ -892,7 +991,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetRegisterToInputAttibute(reg, attribute.element, attribute.index, input_mode);
 
             if (instr.ipa.saturate) {
-                SetRegisterToFloat(reg, 0, GetRegisterAsFloat(reg), 1, 1, true);
+                SetRegisterToFloat(reg, 0, GetRegisterAsFloat(reg), true);
             }
             break;
         }
