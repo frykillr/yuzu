@@ -68,11 +68,22 @@ public:
         index_type = type;
     }
 
-    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureWriteDescriptorSet() {
-        const u32 index = descriptor_bindings_count++;
-        ASSERT(index < static_cast<u32>(MAX_DESCRIPTOR_BINDINGS));
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorBufferInfo&> CaptureDescriptorWriteBuffer() {
+        const u32 desc_index = descriptor_bindings_count++;
+        const u32 info_index = buffer_info_count++;
+        ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
+        ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_BUFFERS));
 
-        return {descriptor_bindings[index], buffer_infos[index]};
+        return {descriptor_bindings[desc_index], buffer_infos[info_index]};
+    }
+
+    std::tuple<vk::WriteDescriptorSet&, vk::DescriptorImageInfo&> CaptureDescriptorWriteImage() {
+        const u32 desc_index = descriptor_bindings_count++;
+        const u32 info_index = image_info_count++;
+        ASSERT(desc_index < static_cast<u32>(MAX_DESCRIPTOR_WRITES));
+        ASSERT(info_index < static_cast<u32>(MAX_DESCRIPTOR_IMAGES));
+
+        return {descriptor_bindings[desc_index], image_infos[info_index]};
     }
 
     void UpdateDescriptorSets(vk::Device device) const {
@@ -103,8 +114,11 @@ public:
     }
 
 private:
-    static constexpr std::size_t MAX_DESCRIPTOR_BINDINGS =
+    static constexpr std::size_t MAX_DESCRIPTOR_BUFFERS =
         Maxwell::MaxShaderStage * Maxwell::MaxConstBuffers;
+    static constexpr std::size_t MAX_DESCRIPTOR_IMAGES = Maxwell::NumTextureSamplers;
+    static constexpr std::size_t MAX_DESCRIPTOR_WRITES =
+        MAX_DESCRIPTOR_BUFFERS + MAX_DESCRIPTOR_IMAGES;
 
     StaticVector<Maxwell::NumVertexArrays, vk::Buffer, vk::DeviceSize> vertex_bindings;
 
@@ -115,8 +129,13 @@ private:
     std::array<vk::DescriptorSet, Maxwell::MaxShaderStage> descriptor_sets{};
 
     u32 descriptor_bindings_count{};
-    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_BINDINGS> descriptor_bindings;
-    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BINDINGS> buffer_infos;
+    std::array<vk::WriteDescriptorSet, MAX_DESCRIPTOR_WRITES> descriptor_bindings;
+
+    u32 buffer_info_count{};
+    std::array<vk::DescriptorBufferInfo, MAX_DESCRIPTOR_BUFFERS> buffer_infos;
+
+    u32 image_info_count{};
+    std::array<vk::DescriptorImageInfo, MAX_DESCRIPTOR_IMAGES> image_infos;
 };
 
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer, VKScreenInfo& screen_info,
@@ -133,6 +152,13 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer, VKScreen
     shader_cache = std::make_unique<VKShaderCache>(*this, device_handler);
     buffer_cache = std::make_unique<VKBufferCache>(*this, resource_manager, device_handler,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
+
+    const vk::SamplerCreateInfo sampler_ci(
+        {}, vk::Filter::eNearest, vk::Filter::eNearest, vk::SamplerMipmapMode::eNearest,
+        vk::SamplerAddressMode::eRepeat, vk::SamplerAddressMode::eRepeat,
+        vk::SamplerAddressMode::eRepeat, 0.f, false, 0.f, false, vk::CompareOp::eNever, 0.f, 0.f,
+        vk::BorderColor::eFloatOpaqueWhite, false);
+    dummy_sampler = device.createSamplerUnique(sampler_ci);
 }
 
 RasterizerVulkan::~RasterizerVulkan() = default;
@@ -189,6 +215,8 @@ void RasterizerVulkan::DrawArrays() {
 
     Pipeline pipeline = shader_cache->GetPipeline(params);
 
+    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
+
     for (std::size_t stage = 0; stage < pipeline.shaders.size(); ++stage) {
         const Shader& shader = pipeline.shaders[stage];
         if (shader == nullptr)
@@ -196,10 +224,10 @@ void RasterizerVulkan::DrawArrays() {
 
         const auto descriptor_set = shader->CommitDescriptorSet(fence);
         SetupConstBuffers(state, shader, static_cast<Maxwell::ShaderStage>(stage), descriptor_set);
-        state.AssignDescriptorSet(stage, descriptor_set);
+        SetupTextures(state, shader, static_cast<Maxwell::ShaderStage>(stage), cmdbuf,
+                      descriptor_set);
+        state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
     }
-
-    const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
     const FramebufferInfo fb_info = ConfigureFramebuffers(fence, cmdbuf, pipeline.renderpass);
     const Surface& color_surface = fb_info.color_surfaces[0];
@@ -303,9 +331,17 @@ void RasterizerVulkan::FlushAll() {}
 
 void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
-void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {}
+void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
+    LOG_CRITICAL(Render_Vulkan, "Invalidate");
+    res_cache->InvalidateRegion(addr, size);
+    shader_cache->InvalidateRegion(addr, size);
+    buffer_cache->InvalidateRegion(addr, size);
+}
 
-void RasterizerVulkan::FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) {}
+void RasterizerVulkan::FlushAndInvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
+    FlushRegion(addr, size);
+    InvalidateRegion(addr, size);
+}
 
 bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
                                          VAddr framebuffer_addr, u32 pixel_stride) {
@@ -439,7 +475,7 @@ void RasterizerVulkan::SetupIndexBuffer(PipelineState& state) {
     state.SetIndexBinding(buffer, offset, MaxwellToVK::IndexFormat(regs.index_array.format));
 }
 
-void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
+void RasterizerVulkan::SetupConstBuffers(PipelineState& state, const Shader& shader,
                                          Maxwell::ShaderStage stage,
                                          vk::DescriptorSet descriptor_set) {
     const auto& gpu = Core::System::GetInstance().GPU();
@@ -474,12 +510,42 @@ void RasterizerVulkan::SetupConstBuffers(PipelineState& state, Shader shader,
         const auto [offset, buffer_handle] =
             buffer_cache->UploadMemory(buffer.address, size, uniform_buffer_alignment);
 
-        auto [write, buffer_info] = state.CaptureWriteDescriptorSet();
+        auto [write, buffer_info] = state.CaptureDescriptorWriteBuffer();
         buffer_info =
             vk::DescriptorBufferInfo(buffer_handle, offset, static_cast<vk::DeviceSize>(size));
         write = vk::WriteDescriptorSet(descriptor_set, used_buffer.GetBinding(), 0, 1,
                                        vk::DescriptorType::eUniformBuffer, nullptr, &buffer_info,
                                        nullptr);
+    }
+}
+
+void RasterizerVulkan::SetupTextures(PipelineState& state, const Shader& shader,
+                                     Maxwell::ShaderStage stage, vk::CommandBuffer cmdbuf,
+                                     vk::DescriptorSet descriptor_set) {
+    const auto& gpu = Core::System::GetInstance().GPU();
+    const auto& maxwell3d = gpu.Maxwell3D();
+    const auto& entries = shader->GetEntries().samplers;
+
+    for (u32 bindpoint = 0; bindpoint < entries.size(); ++bindpoint) {
+        const auto& entry = entries[bindpoint];
+
+        const auto texture = maxwell3d.GetStageTexture(entry.GetStage(), entry.GetOffset());
+        UNIMPLEMENTED_IF(!texture.enabled);
+
+        Surface surface = res_cache->GetTextureSurface(cmdbuf, texture, entry);
+        UNIMPLEMENTED_IF(surface == nullptr);
+
+        constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
+        surface->Transition(cmdbuf, surface->GetImageAspectFlags(),
+                            vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
+                            vk::AccessFlagBits::eShaderRead);
+
+        const auto [write, image_info] = state.CaptureDescriptorWriteImage();
+        image_info = vk::DescriptorImageInfo(*dummy_sampler, surface->GetImageView(),
+                                             vk::ImageLayout::eShaderReadOnlyOptimal);
+        write = vk::WriteDescriptorSet(descriptor_set, entry.GetBinding(), 0, 1,
+                                       vk::DescriptorType::eCombinedImageSampler, &image_info,
+                                       nullptr, nullptr);
     }
 }
 

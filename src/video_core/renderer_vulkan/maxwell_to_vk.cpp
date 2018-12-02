@@ -20,7 +20,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm}, // ABGR8U
     {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8S
     {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // B5G6R5U
+    {vk::Format::eB5G6R5UnormPack16, ComponentType::UNorm},   // B5G6R5U
     {vk::Format::eUndefined, ComponentType::Invalid},         // A2B10G10R10U
     {vk::Format::eUndefined, ComponentType::Invalid},         // A1B5G5R5U
     {vk::Format::eUndefined, ComponentType::Invalid},         // R8U

@@ -63,8 +63,11 @@ private:
 
     void SetupIndexBuffer(PipelineState& state);
 
-    void SetupConstBuffers(PipelineState& state, Shader shader, Maxwell::ShaderStage stage,
+    void SetupConstBuffers(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
                            vk::DescriptorSet descriptor_set);
+
+    void SetupTextures(PipelineState& state, const Shader& shader, Maxwell::ShaderStage stage,
+                       vk::CommandBuffer cmdbuf, vk::DescriptorSet descriptor_set);
 
     std::size_t CalculateVertexArraysSize() const;
 
@@ -85,6 +88,8 @@ private:
     std::unique_ptr<VKRasterizerCache> res_cache;
     std::unique_ptr<VKShaderCache> shader_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
+
+    vk::UniqueSampler dummy_sampler;
 
     // FIXME(Rodrigo): Invalidate me on shader flush
     std::map<FramebufferCacheKey, vk::UniqueFramebuffer> framebuffer_cache;

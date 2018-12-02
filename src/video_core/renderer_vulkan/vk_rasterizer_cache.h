@@ -17,7 +17,9 @@
 #include "common/math_util.h"
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_image.h"
+#include "video_core/renderer_vulkan/vk_shader_gen.h"
 #include "video_core/surface.h"
+#include "video_core/textures/texture.h"
 #include "video_core/textures/decoders.h"
 
 namespace Vulkan {
@@ -38,6 +40,10 @@ using Surface = std::shared_ptr<CachedSurface>;
 using SurfaceSurfaceRect_Tuple = std::tuple<Surface, Surface, MathUtil::Rectangle<u32>>;
 
 struct SurfaceParams {
+    /// Creates SurfaceParams from a texture configuration
+    static SurfaceParams CreateForTexture(const Tegra::Texture::FullTextureInfo& config,
+                                          const VKShader::SamplerEntry& entry);
+
     /// Creates SurfaceParams for a depth buffer configuration
     static SurfaceParams CreateForDepthBuffer(
         u32 zeta_width, u32 zeta_height, Tegra::GPUVAddr zeta_address, Tegra::DepthFormat format,
@@ -186,6 +192,11 @@ public:
                                VKResourceManager& resource_manager,
                                VKMemoryManager& memory_manager);
     ~VKRasterizerCache();
+
+    /// Get a surface based on the texture configuration
+    Surface GetTextureSurface(vk::CommandBuffer cmdbuf,
+                              const Tegra::Texture::FullTextureInfo& config,
+                              const VKShader::SamplerEntry& entry);
 
     /// Get the depth surface based on the framebuffer configuration
     Surface GetDepthBufferSurface(vk::CommandBuffer cmdbuf, bool preserve_contents);

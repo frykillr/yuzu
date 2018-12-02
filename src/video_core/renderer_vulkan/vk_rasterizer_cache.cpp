@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <vulkan/vulkan.hpp>
+#include "common/alignment.h"
+#include "common/assert.h"
 #include "core/core.h"
 #include "core/memory.h"
 #include "video_core/engines/maxwell_3d.h"
@@ -16,6 +18,8 @@
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/surface.h"
 #include "video_core/textures/astc.h"
+
+#pragma optimize("", off)
 
 namespace Vulkan {
 
@@ -58,6 +62,44 @@ static vk::ImageAspectFlags PixelFormatToImageAspect(PixelFormat pixel_format) {
         UNREACHABLE_MSG("Invalid pixel format={}", static_cast<u32>(pixel_format));
         return vk::ImageAspectFlagBits::eColor;
     }
+}
+
+/*static*/ SurfaceParams SurfaceParams::CreateForTexture(
+    const Tegra::Texture::FullTextureInfo& config, const VKShader::SamplerEntry& entry) {
+
+    SurfaceParams params{};
+    params.is_tiled = config.tic.IsTiled();
+    params.block_width = params.is_tiled ? config.tic.BlockWidth() : 0,
+    params.block_height = params.is_tiled ? config.tic.BlockHeight() : 0,
+    params.block_depth = params.is_tiled ? config.tic.BlockDepth() : 0,
+    params.tile_width_spacing = params.is_tiled ? (1 << config.tic.tile_width_spacing.Value()) : 1;
+    // params.srgb_conversion = config.tic.IsSrgbConversionEnabled();
+    params.pixel_format = PixelFormatFromTextureFormat(config.tic.format, config.tic.r_type.Value(),
+                                                       false /*params.srgb_conversion*/);
+    params.component_type = ComponentTypeFromTexture(config.tic.r_type.Value());
+    params.type = GetFormatType(params.pixel_format);
+    params.width = Common::AlignUp(config.tic.Width(), GetCompressionFactor(params.pixel_format));
+    params.height = Common::AlignUp(config.tic.Height(), GetCompressionFactor(params.pixel_format));
+    params.unaligned_height = config.tic.Height();
+    params.target = SurfaceTargetFromTextureType(config.tic.texture_type);
+
+    switch (params.target) {
+    case SurfaceTarget::Texture2D:
+        params.depth = 1;
+        break;
+    default:
+        UNIMPLEMENTED_MSG("Unknown depth for target={}", static_cast<u32>(params.target));
+        params.depth = 1;
+        break;
+    }
+
+    // params.is_layered = SurfaceTargetIsLayered(params.target);
+    // params.max_mip_level = config.tic.max_mip_level + 1;
+    // params.rt = {};
+
+    params.InitCacheParameters(config.tic.Address());
+
+    return params;
 }
 
 /*static*/ SurfaceParams SurfaceParams::CreateForDepthBuffer(
@@ -177,10 +219,15 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
 
     const bool is_zeta = pixel_format >= PixelFormat::FirstDepthStencilFormat &&
                          pixel_format <= PixelFormat::MaxDepthStencilFormat;
-    const auto usage = (is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
-                                : vk::ImageUsageFlagBits::eColorAttachment) |
-                       vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
-                       vk::ImageUsageFlagBits::eTransferSrc;
+    const auto attachment_usage = is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
+                                          : vk::ImageUsageFlagBits::eColorAttachment;
+    auto usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
+                 vk::ImageUsageFlagBits::eTransferSrc;
+    if (MaxwellToVK::SurfaceFormat(pixel_format, component_type) !=
+        vk::Format::eB5G6R5UnormPack16) {
+
+        usage |= attachment_usage;
+    }
     return {{},
             SurfaceTargetToImageVK(target),
             MaxwellToVK::SurfaceFormat(pixel_format, component_type),
@@ -248,11 +295,11 @@ vk::ImageView CachedSurface::GetImageView() {
     }
 
     const auto access = [&]() -> vk::ImageAspectFlags {
-        if (params.pixel_format <= PixelFormat::MaxColorFormat) {
+        if (params.pixel_format < PixelFormat::MaxColorFormat) {
             return vk::ImageAspectFlagBits::eColor;
-        } else if (params.pixel_format <= PixelFormat::MaxDepthFormat) {
+        } else if (params.pixel_format < PixelFormat::MaxDepthFormat) {
             return vk::ImageAspectFlagBits::eDepth;
-        } else if (params.pixel_format <= PixelFormat::MaxDepthStencilFormat) {
+        } else if (params.pixel_format < PixelFormat::MaxDepthStencilFormat) {
             return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
         } else {
             UNREACHABLE_MSG("Invalid pixel format={}", static_cast<u32>(params.pixel_format));
@@ -316,6 +363,13 @@ VKRasterizerCache::VKRasterizerCache(RasterizerVulkan& rasterizer, VKDevice& dev
 
 VKRasterizerCache::~VKRasterizerCache() = default;
 
+Surface VKRasterizerCache::GetTextureSurface(vk::CommandBuffer cmdbuf,
+                                             const Tegra::Texture::FullTextureInfo& config,
+                                             const VKShader::SamplerEntry& entry) {
+
+    return GetSurface(SurfaceParams::CreateForTexture(config, entry), cmdbuf);
+}
+
 Surface VKRasterizerCache::GetDepthBufferSurface(vk::CommandBuffer cmdbuf, bool preserve_contents) {
     const auto& regs{Core::System::GetInstance().GPU().Maxwell3D().regs};
     if (!regs.zeta.Address() || !regs.zeta_enable) {
@@ -362,7 +416,7 @@ Surface VKRasterizerCache::GetSurface(const SurfaceParams& params, vk::CommandBu
     }
 
     // Look up surface in the cache based on address
-    Surface surface{TryGet(params.addr)};
+    Surface surface/*{TryGet(params.addr)};
     if (surface) {
         if (surface->GetSurfaceParams().IsCompatibleSurface(params)) {
             // Use the cached surface as-is
@@ -378,7 +432,8 @@ Surface VKRasterizerCache::GetSurface(const SurfaceParams& params, vk::CommandBu
             // Delete the old surface before creating a new one to prevent collisions.
             Unregister(surface);
         }
-    }
+    }*/
+        ;
 
     // No cached surface found - get a new one
     surface = GetUncachedSurface(params);

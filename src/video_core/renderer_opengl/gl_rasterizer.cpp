@@ -724,6 +724,7 @@ void RasterizerOpenGL::FlushRegion(VAddr addr, u64 size) {
 
 void RasterizerOpenGL::InvalidateRegion(VAddr addr, u64 size) {
     MICROPROFILE_SCOPE(OpenGL_CacheManagement);
+    LOG_CRITICAL(Render_Vulkan, "Invalidate");
     res_cache.InvalidateRegion(addr, size);
     shader_cache.InvalidateRegion(addr, size);
     buffer_cache.InvalidateRegion(addr, size);

@@ -2746,8 +2746,8 @@ private:
                 Tegra::Shader::TextureType texture_type{instr.texs.GetTextureType()};
                 bool is_array{instr.texs.IsArrayTexture()};
 
-                UNIMPLEMENTED_IF_MSG(instr.texs.UsesMiscMode(Tegra::Shader::TextureMiscMode::NODEP),
-                                     "NODEP is not implemented");
+                /*UNIMPLEMENTED_IF_MSG(instr.texs.UsesMiscMode(Tegra::Shader::TextureMiscMode::NODEP),
+                                     "NODEP is not implemented");*/
 
                 const bool depth_compare =
                     instr.texs.UsesMiscMode(Tegra::Shader::TextureMiscMode::DC);
