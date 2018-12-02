@@ -82,7 +82,7 @@ static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex
     {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_10X8_SRGB
 
     // Depth formats
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z32F
+    {vk::Format::eD32Sfloat, ComponentType::Float},   // Z32F
     {vk::Format::eUndefined, ComponentType::Invalid}, // Z16
 
     // DepthStencil formats

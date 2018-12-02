@@ -206,6 +206,26 @@ private:
     /// Gets a predicate value.
     Id GetPredicate(u64 index);
 
+    /// Sets a predicate value
+    void SetPredicate(u64 pred, Id value);
+
+    /**
+     * Returns the operator string to use to combine two predicates in the 'setp' family of
+     * instructions.
+     * @params operation The operator used in the 'setp'-family instruction.
+     * @returns Id corresponding to the SPIR-V operator that matches the desired operator.
+     */
+    Id CombinePredicates(Tegra::Shader::PredOperation operation, Id op_a, Id op_b);
+
+    /**
+     * Returns the comparison to use to compare two values in the 'set' family of instructions.
+     * @param condition The condition used in the 'set'-family instruction.
+     * @param op_a First operand to use for the comparison.
+     * @param op_b Second operand to use for the comparison.
+     * @returns Id corresponding to the SPIR-V operator that matches the desired comparison.
+     */
+    Id GetPredicateComparison(Tegra::Shader::PredCondition condition, Id op_a, Id op_b);
+
     /// Gets (and allocates) the sampler for the asked parameters.
     Id GetSampler(const Tegra::Shader::Sampler& sampler, Tegra::Shader::TextureType type,
                   bool is_array, bool is_shadow);

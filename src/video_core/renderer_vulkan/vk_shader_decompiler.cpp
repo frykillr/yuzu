@@ -317,6 +317,75 @@ Id SpirvModule::GetPredicate(u64 index) {
     return Emit(OpLoad(t_bool, predicates[index]));
 }
 
+void SpirvModule::SetPredicate(u64 pred, Id value) {
+    // Can't assign to the constant predicate.
+    ASSERT(pred != static_cast<u64>(Tegra::Shader::Pred::UnusedIndex));
+
+    Emit(OpStore(predicates[pred], value));
+}
+
+Id SpirvModule::CombinePredicates(Tegra::Shader::PredOperation operation, Id op_a, Id op_b) {
+    using Tegra::Shader::PredOperation;
+    switch (operation) {
+    case PredOperation::And:
+        return Emit(OpLogicalAnd(t_bool, op_a, op_b));
+    case PredOperation::Or:
+        return Emit(OpLogicalOr(t_bool, op_a, op_b));
+    case PredOperation::Xor:
+        return Emit(OpLogicalNotEqual(t_bool, op_a, op_b));
+    default:
+        UNREACHABLE_MSG("Unknown predicate operation={}", static_cast<u32>(operation));
+        return op_a;
+    }
+}
+
+Id SpirvModule::GetPredicateComparison(Tegra::Shader::PredCondition condition, Id op_a, Id op_b) {
+    using Tegra::Shader::PredCondition;
+
+    Id predicate = [&]() {
+        switch (condition) {
+        case PredCondition::LessThan:
+            return OpFOrdLessThan(t_bool, op_a, op_b);
+        case PredCondition::Equal:
+            return OpFOrdEqual(t_bool, op_a, op_b);
+        case PredCondition::LessEqual:
+            return OpFOrdLessThanEqual(t_bool, op_a, op_b);
+        case PredCondition::GreaterThan:
+            return OpFOrdGreaterThan(t_bool, op_a, op_b);
+        case PredCondition::NotEqual:
+            return OpFOrdNotEqual(t_bool, op_a, op_b);
+        case PredCondition::GreaterEqual:
+            return OpFOrdGreaterThanEqual(t_bool, op_a, op_b);
+        case PredCondition::LessThanWithNan:
+            return OpFOrdLessThan(t_bool, op_a, op_b);
+        case PredCondition::NotEqualWithNan:
+            return OpFOrdNotEqual(t_bool, op_a, op_b);
+        case PredCondition::LessEqualWithNan:
+            return OpFOrdLessThanEqual(t_bool, op_a, op_b);
+        case PredCondition::GreaterThanWithNan:
+            return OpFOrdGreaterThan(t_bool, op_a, op_b);
+        case PredCondition::GreaterEqualWithNan:
+            return OpFOrdGreaterThanEqual(t_bool, op_a, op_b);
+        default:
+            UNREACHABLE_MSG("Unknown predicate comparison operation={}",
+                            static_cast<u32>(condition));
+        }
+    }();
+    predicate = Emit(predicate);
+
+    if (condition == PredCondition::LessThanWithNan ||
+        condition == PredCondition::NotEqualWithNan ||
+        condition == PredCondition::LessEqualWithNan ||
+        condition == PredCondition::GreaterThanWithNan ||
+        condition == PredCondition::GreaterEqualWithNan) {
+
+        predicate = Emit(OpLogicalOr(t_bool, predicate, Emit(OpIsNan(t_bool, op_a))));
+        predicate = Emit(OpLogicalOr(t_bool, predicate, Emit(OpIsNan(t_bool, op_b))));
+    }
+
+    return predicate;
+}
+
 Id SpirvModule::GetSampler(const Sampler& sampler, Tegra::Shader::TextureType type, bool is_array,
                            bool is_shadow) {
     UNIMPLEMENTED_IF(type != Tegra::Shader::TextureType::Texture2D);
@@ -424,7 +493,7 @@ Id SpirvModule::DeclareInputAttribute(Attribute::Index attribute,
 
     // When the stage is not vertex, the first varyings are reserved for emulation values (like
     // "position").
-    const u32 offset = stage == ShaderStage::Vertex ? 0 : VARYING_START_LOCATION;
+    const u32 offset = (stage == ShaderStage::Vertex) ? 0 : VARYING_START_LOCATION;
     Decorate(variable, spv::Decoration::Location, {index + offset});
 
     const InputAttributeEntry entry{variable, input_mode};
@@ -440,7 +509,7 @@ Id SpirvModule::DeclareOutputAttribute(u32 index) {
     const Id variable =
         AddGlobalVariable(OpVariable(t_out_float4, spv::StorageClass::Output, v_float4_zero));
     Name(variable, fmt::format("output_attr_{}", index));
-    Decorate(variable, spv::Decoration::Location, {VARYING_START_LOCATION});
+    Decorate(variable, spv::Decoration::Location, {VARYING_START_LOCATION + index});
 
     output_attrs.insert(std::make_pair(index, variable));
     interfaces.push_back(variable);
@@ -952,6 +1021,44 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         }
         break;
     }
+    case OpCode::Type::FloatSetPredicate: {
+        const Id op_a = GetFloatOperandAbsNeg(GetRegisterAsFloat(instr.gpr8),
+                                              instr.fsetp.abs_a != 0, instr.fsetp.neg_a != 0);
+        Id op_b = [&]() {
+            if (instr.is_b_imm) {
+                return GetImmediate19(instr);
+            } else {
+                if (instr.is_b_gpr) {
+                    return GetRegisterAsFloat(instr.gpr20);
+                } else {
+                    return GetUniform(instr.cbuf34.index, instr.cbuf34.offset, t_float);
+                }
+            }
+        }();
+
+        if (instr.fsetp.abs_b) {
+            op_b = Emit(OpFAbs(t_float, op_b));
+        }
+
+        // We can't use the constant predicate as destination.
+        ASSERT(instr.fsetp.pred3 != static_cast<u64>(Pred::UnusedIndex));
+
+        const Id second_pred = GetPredicateCondition(instr.fsetp.pred39, instr.fsetp.neg_pred != 0);
+
+        const Id predicate = GetPredicateComparison(instr.fsetp.cond, op_a, op_b);
+
+        // Set the primary predicate to the result of Predicate OP SecondPredicate
+        SetPredicate(instr.fsetp.pred3, CombinePredicates(instr.fsetp.op, predicate, second_pred));
+
+        if (instr.fsetp.pred0 != static_cast<u64>(Pred::UnusedIndex)) {
+            // Set the secondary predicate to the result of !Predicate OP SecondPredicate, if
+            // enabled
+            SetPredicate(instr.fsetp.pred0,
+                         CombinePredicates(instr.fsetp.op, Emit(OpLogicalNot(t_bool, predicate)),
+                                           second_pred));
+        }
+        break;
+    }
     default: {
         switch (opcode->get().GetId()) {
         case OpCode::Id::EXIT: {
@@ -995,7 +1102,27 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             }
             break;
         }
-        default: { UNIMPLEMENTED_MSG("Unhandled instruction: {}", opcode->get().GetName()); }
+        case OpCode::Id::KIL: {
+            UNIMPLEMENTED_IF(instr.flow.cond != Tegra::Shader::FlowCondition::Always);
+
+            const Tegra::Shader::ConditionCode cc = instr.flow_condition_code;
+            UNIMPLEMENTED_IF_MSG(cc != Tegra::Shader::ConditionCode::T,
+                                 "KIL condition code used: {}", static_cast<u32>(cc));
+
+            // Use a branch to let OpKill finish a basic block like it's designed to do in SPIR-V
+            Id kil_label = OpLabel();
+            Id unreachable_label = OpLabel();
+
+            // Hint the compiler with weights
+            Emit(OpBranchConditional(v_true, kil_label, unreachable_label, 1, 0));
+            Emit(kil_label);
+            Emit(OpKill());
+            Emit(unreachable_label);
+            break;
+        }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled instruction: {}", opcode->get().GetName());
+            break;
         }
     }
     }

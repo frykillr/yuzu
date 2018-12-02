@@ -32,6 +32,7 @@ struct FramebufferInfo {
     vk::Framebuffer framebuffer;
     std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
     Surface zeta_surface;
+    u32 width, height;
 };
 
 struct FramebufferCacheKey {
@@ -243,18 +244,16 @@ void RasterizerVulkan::DrawArrays() {
         vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite);
 
     if (zeta_surface != nullptr) {
-        zeta_surface->Transition(
-            cmdbuf, vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal,
-            vk::PipelineStageFlagBits::eLateFragmentTests,
-            vk::AccessFlagBits::eDepthStencilAttachmentRead |
-                vk::AccessFlagBits::eDepthStencilAttachmentWrite);
+        zeta_surface->Transition(cmdbuf, zeta_surface->GetImageAspectFlags(),
+                                 vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                 vk::PipelineStageFlagBits::eLateFragmentTests,
+                                 vk::AccessFlagBits::eDepthStencilAttachmentRead |
+                                     vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
-    // TODO(Rodrigo): Dehardcode renderpass size
     const vk::RenderPassBeginInfo renderpass_bi(pipeline.renderpass, fb_info.framebuffer,
-                                                {{0, 0}, {1280, 720}}, 0,
-                                                nullptr /* <-- this is clear values */);
+                                                {{0, 0}, {fb_info.width, fb_info.height}}, 0,
+                                                nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle);
@@ -287,8 +286,6 @@ void RasterizerVulkan::Clear() {
         return;
     }
 
-    ASSERT_MSG(use_color, "Unimplemented");
-
     VKFence& fence = sched.BeginPass(true);
     const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
@@ -308,10 +305,8 @@ void RasterizerVulkan::Clear() {
     }
     if (use_depth || use_stencil) {
         Surface zeta_surface = res_cache->GetDepthBufferSurface(cmdbuf, false);
+        const auto aspect = zeta_surface->GetImageAspectFlags();
 
-        // TODO(Rodrigo): Dehardcode this.
-        const vk::ImageAspectFlags aspect =
-            vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
         zeta_surface->Transition(cmdbuf, aspect, vk::ImageLayout::eTransferDstOptimal,
                                  vk::PipelineStageFlagBits::eTransfer,
                                  vk::AccessFlagBits::eTransferWrite);
@@ -389,14 +384,18 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::Comm
 
     FramebufferCacheKey fbkey;
     fbkey.renderpass = renderpass;
-    fbkey.width = 1280;
-    fbkey.height = 720;
+    fbkey.width = std::numeric_limits<u32>::max();
+    fbkey.height = std::numeric_limits<u32>::max();
 
     if (color_surface != nullptr) {
         fbkey.views.Push(color_surface->GetImageView());
+        fbkey.width = std::min(fbkey.width, color_surface->GetSurfaceParams().width);
+        fbkey.height = std::min(fbkey.height, color_surface->GetSurfaceParams().height);
     }
     if (zeta_surface != nullptr) {
         fbkey.views.Push(zeta_surface->GetImageView());
+        fbkey.width = std::min(fbkey.width, zeta_surface->GetSurfaceParams().width);
+        fbkey.height = std::min(fbkey.height, zeta_surface->GetSurfaceParams().height);
     }
 
     const auto [fbentry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
@@ -416,6 +415,8 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::Comm
     if (zeta_surface != nullptr) {
         info.zeta_surface = std::move(zeta_surface);
     }
+    info.width = fbkey.width;
+    info.height = fbkey.height;
     return info;
 }
 
