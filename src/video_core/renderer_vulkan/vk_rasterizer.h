@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <utility>
+#include <boost/icl/interval.hpp>
 #include <vulkan/vulkan.hpp>
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
@@ -46,6 +47,7 @@ public:
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;
     bool AccelerateDrawBatch(bool is_indexed) override;
+    void UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) override;
 
     /// Maximum supported size that a constbuffer can have in bytes.
     static constexpr std::size_t MaxConstbufferSize = 0x10000;
@@ -96,6 +98,9 @@ private:
 
     enum class AccelDraw { Disabled, Arrays, Indexed };
     AccelDraw accelerate_draw = AccelDraw::Disabled;
+
+    using CachedPageMap = boost::icl::interval_map<u64, int>;
+    CachedPageMap cached_pages;
 };
 
 } // namespace Vulkan

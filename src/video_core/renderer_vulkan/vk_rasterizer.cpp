@@ -10,6 +10,7 @@
 #include "common/logging/log.h"
 #include "common/static_vector.h"
 #include "core/core.h"
+#include "core/memory.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
@@ -331,7 +332,6 @@ void RasterizerVulkan::FlushAll() {}
 void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
 void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
-    LOG_CRITICAL(Render_Vulkan, "Invalidate");
     res_cache->InvalidateRegion(addr, size);
     shader_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
@@ -370,6 +370,41 @@ bool RasterizerVulkan::AccelerateDrawBatch(bool is_indexed) {
     accelerate_draw = is_indexed ? AccelDraw::Indexed : AccelDraw::Arrays;
     DrawArrays();
     return true;
+}
+
+template <typename Map, typename Interval>
+static constexpr auto RangeFromInterval(Map& map, const Interval& interval) {
+    return boost::make_iterator_range(map.equal_range(interval));
+}
+
+void RasterizerVulkan::UpdatePagesCachedCount(VAddr addr, u64 size, int delta) {
+    const u64 page_start{addr >> Memory::PAGE_BITS};
+    const u64 page_end{(addr + size + Memory::PAGE_SIZE - 1) >> Memory::PAGE_BITS};
+
+    // Interval maps will erase segments if count reaches 0, so if delta is negative we have to
+    // subtract after iterating
+    const auto pages_interval = CachedPageMap::interval_type::right_open(page_start, page_end);
+    if (delta > 0)
+        cached_pages.add({pages_interval, delta});
+
+    for (const auto& pair : RangeFromInterval(cached_pages, pages_interval)) {
+        const auto interval = pair.first & pages_interval;
+        const int count = pair.second;
+
+        const VAddr interval_start_addr = boost::icl::first(interval) << Memory::PAGE_BITS;
+        const VAddr interval_end_addr = boost::icl::last_next(interval) << Memory::PAGE_BITS;
+        const u64 interval_size = interval_end_addr - interval_start_addr;
+
+        if (delta > 0 && count == delta)
+            Memory::RasterizerMarkRegionCached(interval_start_addr, interval_size, true);
+        else if (delta < 0 && count == -delta)
+            Memory::RasterizerMarkRegionCached(interval_start_addr, interval_size, false);
+        else
+            ASSERT(count >= 0);
+    }
+
+    if (delta < 0)
+        cached_pages.add({pages_interval, delta});
 }
 
 FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::CommandBuffer cmdbuf,

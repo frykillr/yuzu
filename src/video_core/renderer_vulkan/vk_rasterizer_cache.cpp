@@ -294,25 +294,12 @@ vk::ImageView CachedSurface::GetImageView() {
         return *image_view;
     }
 
-    const auto access = [&]() -> vk::ImageAspectFlags {
-        if (params.pixel_format < PixelFormat::MaxColorFormat) {
-            return vk::ImageAspectFlagBits::eColor;
-        } else if (params.pixel_format < PixelFormat::MaxDepthFormat) {
-            return vk::ImageAspectFlagBits::eDepth;
-        } else if (params.pixel_format < PixelFormat::MaxDepthStencilFormat) {
-            return vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
-        } else {
-            UNREACHABLE_MSG("Invalid pixel format={}", static_cast<u32>(params.pixel_format));
-            return vk::ImageAspectFlagBits::eColor;
-        }
-    }();
-
     const vk::ImageViewCreateInfo image_view_ci(
         {}, image, SurfaceTargetToImageViewVK(params.target),
         MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type),
         {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
          vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-        {access, 0, 1, 0, 1});
+        {vk_image_aspect, 0, 1, 0, 1});
     image_view = device.createImageViewUnique(image_view_ci);
     return *image_view;
 }
@@ -416,7 +403,7 @@ Surface VKRasterizerCache::GetSurface(const SurfaceParams& params, vk::CommandBu
     }
 
     // Look up surface in the cache based on address
-    Surface surface/*{TryGet(params.addr)};
+    Surface surface{TryGet(params.addr)};
     if (surface) {
         if (surface->GetSurfaceParams().IsCompatibleSurface(params)) {
             // Use the cached surface as-is
@@ -432,8 +419,7 @@ Surface VKRasterizerCache::GetSurface(const SurfaceParams& params, vk::CommandBu
             // Delete the old surface before creating a new one to prevent collisions.
             Unregister(surface);
         }
-    }*/
-        ;
+    }
 
     // No cached surface found - get a new one
     surface = GetUncachedSurface(params);
