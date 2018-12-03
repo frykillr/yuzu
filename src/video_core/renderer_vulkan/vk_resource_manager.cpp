@@ -14,7 +14,7 @@
 namespace Vulkan {
 
 // TODO(Rodrigo): Fine tune these numbers.
-constexpr u32 COMMAND_BUFFERS_COUNT = 0x1000;
+constexpr u32 COMMAND_BUFFER_POOL_SIZE = 0x1000;
 
 constexpr u32 FENCES_COUNT = 0x4;
 constexpr u32 FENCES_GROW_STEP = 0x4;
@@ -26,28 +26,42 @@ using namespace Resource;
 
 class CommandBufferPool final : public VKFencedPool {
 public:
-    CommandBufferPool(vk::Device device, u32 graphics_family) {
-        InitStatic(COMMAND_BUFFERS_COUNT);
+    CommandBufferPool(vk::Device device, u32 graphics_family)
+        : device(device), graphics_family(graphics_family) {
 
-        const vk::CommandPoolCreateInfo pool_ci(
-            vk::CommandPoolCreateFlagBits::eTransient |
-                vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-            graphics_family);
-        pool = device.createCommandPoolUnique(pool_ci);
-
-        const vk::CommandBufferAllocateInfo cmdbuf_ai(*pool, vk::CommandBufferLevel::ePrimary,
-                                                      COMMAND_BUFFERS_COUNT);
-        cmdbufs = device.allocateCommandBuffersUnique(cmdbuf_ai);
+        InitResizable(COMMAND_BUFFER_POOL_SIZE, COMMAND_BUFFER_POOL_SIZE);
     }
     ~CommandBufferPool() = default;
 
+    void Allocate(std::size_t begin, std::size_t end) {
+        auto pool = std::make_unique<Pool>();
+        pool->handle =
+            device.createCommandPoolUnique({vk::CommandPoolCreateFlagBits::eTransient |
+                                                vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                                            graphics_family});
+        pool->cmdbufs = device.allocateCommandBuffersUnique(
+            {*pool->handle, vk::CommandBufferLevel::ePrimary, COMMAND_BUFFER_POOL_SIZE});
+
+        pools.push_back(std::move(pool));
+    }
+
     vk::CommandBuffer Commit(VKFence& fence) {
-        return *cmdbufs[ResourceCommit(fence)];
+        const std::size_t index = ResourceCommit(fence);
+        const auto pool_index = index / COMMAND_BUFFER_POOL_SIZE;
+        const auto sub_index = index % COMMAND_BUFFER_POOL_SIZE;
+        return *pools[pool_index]->cmdbufs[sub_index];
     }
 
 private:
-    vk::UniqueCommandPool pool;
-    std::vector<vk::UniqueCommandBuffer> cmdbufs;
+    struct Pool {
+        vk::UniqueCommandPool handle;
+        std::vector<vk::UniqueCommandBuffer> cmdbufs;
+    };
+
+    const vk::Device device;
+    const u32 graphics_family;
+
+    std::vector<std::unique_ptr<Pool>> pools;
 };
 
 Base::Base() = default;

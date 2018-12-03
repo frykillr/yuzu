@@ -40,5 +40,5 @@ private:
     PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT{};
 
     /// Enable Vulkan validations layers
-    static constexpr bool enable_layers = true;
+    static constexpr bool enable_layers = false;
 };
