@@ -200,6 +200,10 @@ void RasterizerVulkan::DrawArrays() {
         params.renderpass.color_map.Push(attachment);
     }
 
+    // TODO(Rodrigo): Function this
+    params.viewport_state.width = regs.viewports[0].width;
+    params.viewport_state.height = regs.viewports[0].height;
+
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
     if (is_indexed) {

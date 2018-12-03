@@ -273,15 +273,16 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const auto& vertex_input = params.vertex_input;
     const auto& input_assembly = params.input_assembly;
     const auto& depth_stencil = params.depth_stencil;
+    const auto& viewport_state = params.viewport_state;
 
     StaticVector<Maxwell::NumVertexArrays, vk::VertexInputBindingDescription> vertex_bindings;
-    for (const auto& binding : params.vertex_input.bindings) {
+    for (const auto& binding : vertex_input.bindings) {
         ASSERT(binding.divisor == 0);
         vertex_bindings.Push(vk::VertexInputBindingDescription(binding.index, binding.stride));
     }
 
     StaticVector<Maxwell::NumVertexArrays, vk::VertexInputAttributeDescription> vertex_attributes;
-    for (const auto& attribute : params.vertex_input.attributes) {
+    for (const auto& attribute : vertex_input.attributes) {
         vertex_attributes.Push(vk::VertexInputAttributeDescription(
             attribute.index, attribute.buffer,
             MaxwellToVK::VertexFormat(attribute.type, attribute.size), attribute.offset));
@@ -296,8 +297,10 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci(
         {}, primitive_topology, input_assembly.primitive_restart_enable);
 
-    const vk::Viewport viewport(0.f, 0.f, 1280.f, 720.f, 0.f, 1.f);
-    const vk::Rect2D scissor({0, 0}, {1280, 720});
+    const vk::Viewport viewport(0.f, 0.f, viewport_state.width, viewport_state.height, 0.f, 1.f);
+    // TODO(Rodrigo): Read scissor values instead of using viewport
+    const vk::Rect2D scissor(
+        {0, 0}, {static_cast<u32>(viewport_state.width), static_cast<u32>(viewport_state.height)});
     const vk::PipelineViewportStateCreateInfo viewport_state_ci({}, 1, &viewport, 1, &scissor);
 
     const vk::PipelineRasterizationStateCreateInfo rasterizer_ci(

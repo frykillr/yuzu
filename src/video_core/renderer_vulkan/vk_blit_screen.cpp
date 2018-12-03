@@ -501,16 +501,14 @@ void VKBlitScreen::SetVertexData(const Tegra::FramebufferConfig& framebuffer) {
     ASSERT_MSG(framebuffer_crop_rect.top == 0, "Unimplemented");
     ASSERT_MSG(framebuffer_crop_rect.left == 0, "Unimplemented");
 
-    // FIXME(Rodrigo): Change raw_width and raw_height with screen_info.texture.width
-
     // Scale the output by the crop width/height. This is commonly used with 1280x720 rendering
     // (e.g. handheld mode) on a 1920x1080 framebuffer.
     f32 scale_u = 1.f, scale_v = 1.f;
     if (framebuffer_crop_rect.GetWidth() > 0) {
-        scale_u = static_cast<f32>(framebuffer_crop_rect.GetWidth()) / raw_width;
+        scale_u = static_cast<f32>(framebuffer_crop_rect.GetWidth()) / screen_info.width;
     }
     if (framebuffer_crop_rect.GetHeight() > 0) {
-        scale_v = static_cast<f32>(framebuffer_crop_rect.GetHeight()) / raw_height;
+        scale_v = static_cast<f32>(framebuffer_crop_rect.GetHeight()) / screen_info.height;
     }
 
     const auto& screen = render_window.GetFramebufferLayout().screen;

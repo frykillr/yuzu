@@ -110,8 +110,10 @@ struct PipelineParams {
     } input_assembly;
 
     struct {
+        float width, height;
+
         auto Tie() const {
-            return std::tie();
+            return std::tie(width, height);
         }
     } viewport_state;
 
