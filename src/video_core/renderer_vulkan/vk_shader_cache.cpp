@@ -275,13 +275,13 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const auto& depth_stencil = params.depth_stencil;
     const auto& viewport_state = params.viewport_state;
 
-    StaticVector<Maxwell::NumVertexArrays, vk::VertexInputBindingDescription> vertex_bindings;
+    StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
     for (const auto& binding : vertex_input.bindings) {
         ASSERT(binding.divisor == 0);
         vertex_bindings.Push(vk::VertexInputBindingDescription(binding.index, binding.stride));
     }
 
-    StaticVector<Maxwell::NumVertexArrays, vk::VertexInputAttributeDescription> vertex_attributes;
+    StaticVector<vk::VertexInputAttributeDescription, Maxwell::NumVertexArrays> vertex_attributes;
     for (const auto& attribute : vertex_input.attributes) {
         vertex_attributes.Push(vk::VertexInputAttributeDescription(
             attribute.index, attribute.buffer,
@@ -289,8 +289,8 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     }
 
     const vk::PipelineVertexInputStateCreateInfo vertex_input_ci(
-        {}, static_cast<u32>(vertex_bindings.Size()), vertex_bindings.data(),
-        static_cast<u32>(vertex_attributes.Size()), vertex_attributes.data());
+        {}, static_cast<u32>(vertex_bindings.Size()), vertex_bindings.Data(),
+        static_cast<u32>(vertex_attributes.Size()), vertex_attributes.Data());
 
     const vk::PrimitiveTopology primitive_topology =
         MaxwellToVK::PrimitiveTopology(input_assembly.topology);
@@ -326,7 +326,7 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const vk::PipelineColorBlendStateCreateInfo color_blending_ci(
         {}, false, vk::LogicOp::eCopy, 1, &color_blend_attachment, {0.f, 0.f, 0.f, 0.f});
 
-    StaticVector<Maxwell::MaxShaderStage, vk::PipelineShaderStageCreateInfo> shader_stages;
+    StaticVector<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> shader_stages;
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
         const auto& shader = pipeline.shaders[stage];
         if (shader == nullptr)
@@ -338,7 +338,7 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     }
 
     const vk::GraphicsPipelineCreateInfo create_info(
-        {}, static_cast<u32>(shader_stages.Size()), shader_stages.data(), &vertex_input_ci,
+        {}, static_cast<u32>(shader_stages.Size()), shader_stages.Data(), &vertex_input_ci,
         &input_assembly_ci, nullptr, &viewport_state_ci, &rasterizer_ci, &multisampling_ci,
         &depth_stencil_ci, &color_blending_ci, nullptr, pipeline.layout, pipeline.renderpass, 0);
     return device.createGraphicsPipelineUnique(nullptr, create_info);
@@ -352,8 +352,8 @@ vk::UniqueRenderPass VKShaderCache::CreateRenderPass(const PipelineParams& param
     const vk::AttachmentLoadOp load_op =
         preserve_contents ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
 
-    StaticVector<Maxwell::NumRenderTargets + 1, vk::AttachmentDescription> descrs;
-    const auto& first_map = p.color_map.data()[0];
+    StaticVector<vk::AttachmentDescription, Maxwell::NumRenderTargets + 1> descrs;
+    const auto& first_map = p.color_map[0];
 
     descrs.Push(vk::AttachmentDescription(
         {}, MaxwellToVK::SurfaceFormat(first_map.pixel_format, first_map.component_type),
@@ -395,7 +395,7 @@ vk::UniqueRenderPass VKShaderCache::CreateRenderPass(const PipelineParams& param
     const vk::SubpassDependency subpass_dependency(VK_SUBPASS_EXTERNAL, 0, stage, stage, {}, access,
                                                    {});
 
-    const vk::RenderPassCreateInfo create_info({}, static_cast<u32>(descrs.Size()), descrs.data(),
+    const vk::RenderPassCreateInfo create_info({}, static_cast<u32>(descrs.Size()), descrs.Data(),
                                                1, &subpass_description, 1, &subpass_dependency);
 
     return device.createRenderPassUnique(create_info);

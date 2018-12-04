@@ -77,10 +77,12 @@ struct PipelineParams {
     };
 
     struct ColorAttachment {
+        using ComponentType = VideoCore::Surface::ComponentType;
+        using PixelFormat = VideoCore::Surface::PixelFormat;
+
         u32 index = 0;
-        VideoCore::Surface::PixelFormat pixel_format = VideoCore::Surface::PixelFormat::Invalid;
-        VideoCore::Surface::ComponentType component_type =
-            VideoCore::Surface::ComponentType::Invalid;
+        PixelFormat pixel_format = PixelFormat::Invalid;
+        ComponentType component_type = ComponentType::Invalid;
 
         auto Tie() const {
             return std::tie(index, pixel_format, component_type);
@@ -92,8 +94,8 @@ struct PipelineParams {
     };
 
     struct {
-        StaticVector<Maxwell::NumVertexArrays, VertexBinding> bindings;
-        StaticVector<Maxwell::NumVertexAttributes, VertexAttribute> attributes;
+        StaticVector<VertexBinding, Maxwell::NumVertexArrays> bindings;
+        StaticVector<VertexAttribute, Maxwell::NumVertexAttributes> attributes;
 
         auto Tie() const {
             return std::tie(bindings, attributes);
@@ -154,7 +156,7 @@ struct PipelineParams {
     } color_blending;
 
     struct {
-        StaticVector<Maxwell::NumRenderTargets, ColorAttachment> color_map = {};
+        StaticVector<ColorAttachment, Maxwell::NumRenderTargets> color_map = {};
         // TODO(Rodrigo): Unify has_zeta into zeta_pixel_format and zeta_component_type.
         VideoCore::Surface::PixelFormat zeta_pixel_format =
             VideoCore::Surface::PixelFormat::Invalid;

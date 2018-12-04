@@ -27,7 +27,7 @@
 namespace Vulkan {
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
-using ImageViewsPack = StaticVector<Maxwell::NumRenderTargets + 1, vk::ImageView>;
+using ImageViewsPack = StaticVector<vk::ImageView, Maxwell::NumRenderTargets + 1>;
 
 struct FramebufferInfo {
     vk::Framebuffer framebuffer;
@@ -61,7 +61,7 @@ public:
     }
 
     void AddVertexBinding(vk::Buffer buffer, vk::DeviceSize offset) {
-        vertex_bindings.Push(buffer, offset);
+        vertex_bindings.Push({buffer, offset});
     }
 
     void SetIndexBinding(vk::Buffer buffer, vk::DeviceSize offset, vk::IndexType type) {
@@ -105,8 +105,8 @@ public:
     void BindVertexBuffers(vk::CommandBuffer cmdbuf) const {
         // TODO(Rodrigo): Sort data and bindings to do this in a single call.
         for (u32 index = 0; index < vertex_bindings.Size(); ++index) {
-            cmdbuf.bindVertexBuffers(index, {vertex_bindings.Data<vk::Buffer>()[index]},
-                                     {vertex_bindings.Data<vk::DeviceSize>()[index]});
+            const auto [buffer, size] = vertex_bindings.Data()[index];
+            cmdbuf.bindVertexBuffers(index, {buffer}, {size});
         }
     }
 
@@ -122,7 +122,7 @@ private:
     static constexpr std::size_t MAX_DESCRIPTOR_WRITES =
         MAX_DESCRIPTOR_BUFFERS + MAX_DESCRIPTOR_IMAGES;
 
-    StaticVector<Maxwell::NumVertexArrays, vk::Buffer, vk::DeviceSize> vertex_bindings;
+    StaticVector<std::tuple<vk::Buffer, vk::DeviceSize>, Maxwell::NumVertexArrays> vertex_bindings;
 
     vk::Buffer index_buffer{};
     vk::DeviceSize index_offset{};
@@ -441,7 +441,7 @@ FramebufferInfo RasterizerVulkan::ConfigureFramebuffers(VKFence& fence, vk::Comm
     auto& framebuffer = fbentry->second;
     if (is_cache_miss) {
         const vk::FramebufferCreateInfo framebuffer_ci(
-            {}, fbkey.renderpass, static_cast<u32>(fbkey.views.Size()), fbkey.views.data(),
+            {}, fbkey.renderpass, static_cast<u32>(fbkey.views.Size()), fbkey.views.Data(),
             fbkey.width, fbkey.height, 1);
         framebuffer = device.createFramebufferUnique(framebuffer_ci);
     }
