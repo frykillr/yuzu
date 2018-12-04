@@ -763,7 +763,7 @@ u32 SpirvModule::CompileInstr(u32 offset) {
         case OpCode::Id::RRO_IMM: {
             // Currently RRO is only implemented as a register move.
             op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
-            SetRegisterToFloat(instr.gpr0, 0, op_b, 1, 1);
+            SetRegisterToFloat(instr.gpr0, 0, op_b);
             LOG_WARNING(HW_GPU, "RRO instruction is incomplete");
             break;
         }
