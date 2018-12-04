@@ -202,8 +202,8 @@ void RasterizerVulkan::DrawArrays() {
     }
 
     // TODO(Rodrigo): Function this
-    params.viewport_state.width = regs.viewports[0].width;
-    params.viewport_state.height = regs.viewports[0].height;
+    params.viewport_state.width = static_cast<float>(regs.viewports[0].width);
+    params.viewport_state.height = static_cast<float>(regs.viewports[0].height);
 
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
@@ -243,13 +243,13 @@ void RasterizerVulkan::DrawArrays() {
 
     buffer_cache->Send(fence, cmdbuf);
 
-    color_surface->Transition(
-        cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eColorAttachmentOptimal,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite);
+    color_surface->Transition(cmdbuf, vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                              vk::AccessFlagBits::eColorAttachmentRead |
+                                  vk::AccessFlagBits::eColorAttachmentWrite);
 
     if (zeta_surface != nullptr) {
-        zeta_surface->Transition(cmdbuf, zeta_surface->GetImageAspectFlags(),
+        zeta_surface->Transition(cmdbuf, zeta_surface->GetAspectMask(),
                                  vk::ImageLayout::eDepthStencilAttachmentOptimal,
                                  vk::PipelineStageFlagBits::eLateFragmentTests,
                                  vk::AccessFlagBits::eDepthStencilAttachmentRead |
@@ -298,9 +298,9 @@ void RasterizerVulkan::Clear() {
         Surface color_surface =
             res_cache->GetColorBufferSurface(regs.clear_buffers.RT.Value(), cmdbuf, false);
 
-        color_surface->Transition(
-            cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
-            vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
+        color_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                                  vk::PipelineStageFlagBits::eTransfer,
+                                  vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearColorValue clear(std::array<float, 4>{
             regs.clear_color[0], regs.clear_color[1], regs.clear_color[2], regs.clear_color[3]});
@@ -310,9 +310,9 @@ void RasterizerVulkan::Clear() {
     }
     if (use_depth || use_stencil) {
         Surface zeta_surface = res_cache->GetDepthBufferSurface(cmdbuf, false);
-        const auto aspect = zeta_surface->GetImageAspectFlags();
+        const auto aspect_mask = zeta_surface->GetAspectMask();
 
-        zeta_surface->Transition(cmdbuf, aspect, vk::ImageLayout::eTransferDstOptimal,
+        zeta_surface->Transition(cmdbuf, aspect_mask, vk::ImageLayout::eTransferDstOptimal,
                                  vk::PipelineStageFlagBits::eTransfer,
                                  vk::AccessFlagBits::eTransferWrite);
 
@@ -320,7 +320,7 @@ void RasterizerVulkan::Clear() {
                                                static_cast<u32>(regs.clear_stencil));
         cmdbuf.clearDepthStencilImage(zeta_surface->GetHandle(),
                                       vk::ImageLayout::eTransferDstOptimal, clear,
-                                      {vk::ImageSubresourceRange(aspect, 0, 1, 0, 1)});
+                                      {vk::ImageSubresourceRange(aspect_mask, 0, 1, 0, 1)});
     }
 
     sched.EndRecord(cmdbuf);
@@ -576,7 +576,7 @@ void RasterizerVulkan::SetupTextures(PipelineState& state, const Shader& shader,
         UNIMPLEMENTED_IF(surface == nullptr);
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        surface->Transition(cmdbuf, surface->GetImageAspectFlags(),
+        surface->Transition(cmdbuf, surface->GetAspectMask(),
                             vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
                             vk::AccessFlagBits::eShaderRead);
 

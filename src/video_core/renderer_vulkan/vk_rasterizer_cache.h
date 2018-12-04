@@ -108,8 +108,6 @@ public:
                            VKMemoryManager& memory_manager, const SurfaceParams& params);
     ~CachedSurface();
 
-    vk::ImageView GetImageView();
-
     // Read/Write data in Switch memory to/from vk_buffer
     void LoadVKBuffer();
     void FlushVKBuffer();
@@ -133,14 +131,6 @@ public:
         return params;
     }
 
-    vk::Format GetFormat() const {
-        return vk_format;
-    }
-
-    vk::ImageAspectFlags GetImageAspectFlags() const {
-        return vk_image_aspect;
-    }
-
 private:
     const vk::Device device;
     VKResourceManager& resource_manager;
@@ -158,9 +148,6 @@ private:
     vk::UniqueImageView image_view;
 
     std::size_t cached_size_in_bytes;
-
-    vk::Format vk_format;
-    vk::ImageAspectFlags vk_image_aspect;
 };
 
 } // namespace Vulkan

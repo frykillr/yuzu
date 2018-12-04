@@ -209,11 +209,7 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
     watches[image_index]->Watch(fence);
 
     VKImage* blit_image = use_accelerated ? screen_info.image : raw_images[image_index].get();
-
-    const vk::ImageViewCreateInfo image_view_ci({}, blit_image->GetHandle(), vk::ImageViewType::e2D,
-                                                blit_image->GetFormat(), {},
-                                                {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-    const vk::ImageView image_view = resource_manager.CreateImageView(fence, image_view_ci);
+    const vk::ImageView image_view = blit_image->GetImageView();
 
     UpdateDescriptorSet(image_index, image_view);
 
@@ -237,9 +233,9 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
                                        Memory::GetPointer(framebuffer_addr), data + image_offset,
                                        true);
 
-        blit_image->Transition(
-            cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
-            vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
+        blit_image->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
+                               vk::PipelineStageFlagBits::eTransfer,
+                               vk::AccessFlagBits::eTransferWrite);
 
         const vk::BufferImageCopy copy(image_offset, 0, 0,
                                        {vk::ImageAspectFlagBits::eColor, 0, 0, 1}, {0, 0, 0},
@@ -247,9 +243,9 @@ std::tuple<VKFence&, vk::Semaphore> VKBlitScreen::Draw(
         cmdbuf.copyBufferToImage(*buffer, blit_image->GetHandle(),
                                  vk::ImageLayout::eTransferDstOptimal, {copy});
     }
-    blit_image->Transition(
-        cmdbuf, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eShaderReadOnlyOptimal,
-        vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eShaderRead);
+    blit_image->Transition(cmdbuf, vk::ImageLayout::eShaderReadOnlyOptimal,
+                           vk::PipelineStageFlagBits::eFragmentShader,
+                           vk::AccessFlagBits::eShaderRead);
 
     const vk::Extent2D size = swapchain.GetSize();
     const vk::ClearValue clear_color{std::array<f32, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -470,7 +466,8 @@ void VKBlitScreen::RefreshResources(const Tegra::FramebufferConfig& framebuffer)
             vk::ImageTiling::eLinear,
             vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
-        raw_images[i] = std::make_unique<VKImage>(device, image_ci);
+        raw_images[i] = std::make_unique<VKImage>(device, image_ci, vk::ImageViewType::e2D,
+                                                  vk::ImageAspectFlagBits::eColor);
         const vk::Image image = raw_images[i]->GetHandle();
 
         raw_buffer_commits[i] =

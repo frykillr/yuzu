@@ -51,21 +51,6 @@ private:
     bool is_signaled{};
 };
 
-template <typename T>
-class OneShotEntry final : public OneShot {
-public:
-    OneShotEntry(vk::UniqueHandle<T> resource) : resource(std::move(resource)) {}
-    virtual ~OneShotEntry() = default;
-
-    /// Retreives the resource.
-    T GetHandle() const {
-        return *resource;
-    }
-
-private:
-    vk::UniqueHandle<T> resource;
-};
-
 } // namespace Resource
 
 using VKResource = Resource::Base;
@@ -202,30 +187,7 @@ public:
 
     vk::CommandBuffer CommitCommandBuffer(VKFence& fence);
 
-    vk::RenderPass CreateRenderPass(VKFence& fence, const vk::RenderPassCreateInfo& renderpass_ci);
-
-    vk::ImageView CreateImageView(VKFence& fence, const vk::ImageViewCreateInfo& image_view_ci);
-
-    vk::Framebuffer CreateFramebuffer(VKFence& fence,
-                                      const vk::FramebufferCreateInfo& framebuffer_ci);
-
-    vk::Pipeline CreateGraphicsPipeline(VKFence& fence,
-                                        const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci);
-
-    vk::PipelineLayout CreatePipelineLayout(VKFence& fence,
-                                            const vk::PipelineLayoutCreateInfo& pipeline_layout_ci);
-
 private:
-    using RenderPassEntry = Resource::OneShotEntry<vk::RenderPass>;
-    using ImageViewEntry = Resource::OneShotEntry<vk::ImageView>;
-    using FramebufferEntry = Resource::OneShotEntry<vk::Framebuffer>;
-    using PipelineEntry = Resource::OneShotEntry<vk::Pipeline>;
-    using PipelineLayoutEntry = Resource::OneShotEntry<vk::PipelineLayout>;
-
-    template <typename EntryType, typename HandleType>
-    HandleType CreateOneShot(VKFence& fence, std::vector<std::unique_ptr<EntryType>>& vector,
-                             vk::UniqueHandle<HandleType> handle);
-
     void TickCreations();
 
     template <typename T>
@@ -240,14 +202,6 @@ private:
     std::size_t fences_iterator = 0;
 
     std::unique_ptr<CommandBufferPool> command_buffer_pool;
-
-    u32 tick_creations{};
-
-    std::vector<std::unique_ptr<RenderPassEntry>> renderpasses;
-    std::vector<std::unique_ptr<ImageViewEntry>> image_views;
-    std::vector<std::unique_ptr<FramebufferEntry>> framebuffers;
-    std::vector<std::unique_ptr<PipelineEntry>> pipelines;
-    std::vector<std::unique_ptr<PipelineLayoutEntry>> pipeline_layouts;
 };
 
 } // namespace Vulkan

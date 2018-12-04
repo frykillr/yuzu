@@ -255,7 +255,9 @@ static void SwizzleFunc(const MortonSwizzleMode& mode, const SurfaceParams& para
 
 CachedSurface::CachedSurface(VKDevice& device_handler, VKResourceManager& resource_manager,
                              VKMemoryManager& memory_manager, const SurfaceParams& params)
-    : VKImage(device_handler.GetLogical(), params.CreateInfo()),
+    : VKImage(device_handler.GetLogical(), params.CreateInfo(),
+              SurfaceTargetToImageViewVK(params.target),
+              PixelFormatToImageAspect(params.pixel_format)),
       device(device_handler.GetLogical()), resource_manager(resource_manager),
       memory_manager(memory_manager), params(params), cached_size_in_bytes(params.size_in_bytes),
       buffer_size(std::max(params.size_in_bytes, params.size_in_bytes_vk)) {
@@ -279,29 +281,11 @@ CachedSurface::CachedSurface(VKDevice& device_handler, VKResourceManager& resour
         LOG_ERROR(HW_GPU, "Surface size {} exceeds region size {}", params.size_in_bytes, max_size);
         cached_size_in_bytes = max_size;
     }
-
-    vk_format = MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type);
-    vk_image_aspect = PixelFormatToImageAspect(params.pixel_format);
 }
 
 CachedSurface::~CachedSurface() {
     memory_manager.Free(image_commit);
     memory_manager.Free(buffer_commit);
-}
-
-vk::ImageView CachedSurface::GetImageView() {
-    if (image_view) {
-        return *image_view;
-    }
-
-    const vk::ImageViewCreateInfo image_view_ci(
-        {}, image, SurfaceTargetToImageViewVK(params.target),
-        MaxwellToVK::SurfaceFormat(params.pixel_format, params.component_type),
-        {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-         vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity},
-        {vk_image_aspect, 0, 1, 0, 1});
-    image_view = device.createImageViewUnique(image_view_ci);
-    return *image_view;
 }
 
 void CachedSurface::LoadVKBuffer() {
@@ -324,12 +308,13 @@ void CachedSurface::UploadVKTexture(vk::CommandBuffer cmdbuf) {
     if (params.type == SurfaceType::Fill)
         return;
 
-    Transition(cmdbuf, vk_image_aspect, vk::ImageLayout::eTransferDstOptimal,
+    Transition(cmdbuf, GetAspectMask(), vk::ImageLayout::eTransferDstOptimal,
                vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
 
-    const vk::BufferImageCopy copy(0, 0, 0, {vk_image_aspect, 0, 0, 1}, {0, 0, 0},
+    const vk::BufferImageCopy copy(0, 0, 0, {GetAspectMask(), 0, 0, 1}, {0, 0, 0},
                                    {params.width, params.height, params.depth});
-    if (vk_image_aspect == (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
+    if (GetAspectMask() ==
+        (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
         vk::BufferImageCopy depth = copy;
         vk::BufferImageCopy stencil = copy;
         depth.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
@@ -353,7 +338,6 @@ VKRasterizerCache::~VKRasterizerCache() = default;
 Surface VKRasterizerCache::GetTextureSurface(vk::CommandBuffer cmdbuf,
                                              const Tegra::Texture::FullTextureInfo& config,
                                              const VKShader::SamplerEntry& entry) {
-
     return GetSurface(SurfaceParams::CreateForTexture(config, entry), cmdbuf);
 }
 

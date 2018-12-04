@@ -19,9 +19,6 @@ constexpr u32 COMMAND_BUFFER_POOL_SIZE = 0x1000;
 constexpr u32 FENCES_COUNT = 0x4;
 constexpr u32 FENCES_GROW_STEP = 0x4;
 
-constexpr u32 TICKS_TO_DESTROY = 0x1000;
-constexpr std::size_t OBJECTS_TO_DESTROY = 0x1000;
-
 using namespace Resource;
 
 class CommandBufferPool final : public VKFencedPool {
@@ -313,69 +310,6 @@ VKFence& VKResourceManager::CommitFence() {
 
 vk::CommandBuffer VKResourceManager::CommitCommandBuffer(VKFence& fence) {
     return command_buffer_pool->Commit(fence);
-}
-
-vk::RenderPass VKResourceManager::CreateRenderPass(VKFence& fence,
-                                                   const vk::RenderPassCreateInfo& renderpass_ci) {
-
-    return CreateOneShot(fence, renderpasses, device.createRenderPassUnique(renderpass_ci));
-}
-
-vk::ImageView VKResourceManager::CreateImageView(VKFence& fence,
-                                                 const vk::ImageViewCreateInfo& image_view_ci) {
-    return CreateOneShot(fence, image_views, device.createImageViewUnique(image_view_ci));
-}
-
-vk::Framebuffer VKResourceManager::CreateFramebuffer(
-    VKFence& fence, const vk::FramebufferCreateInfo& framebuffer_ci) {
-
-    return CreateOneShot(fence, framebuffers, device.createFramebufferUnique(framebuffer_ci));
-}
-
-vk::Pipeline VKResourceManager::CreateGraphicsPipeline(
-    VKFence& fence, const vk::GraphicsPipelineCreateInfo& graphics_pipeline_ci) {
-
-    return CreateOneShot(fence, pipelines,
-                         device.createGraphicsPipelineUnique({}, graphics_pipeline_ci));
-}
-
-vk::PipelineLayout VKResourceManager::CreatePipelineLayout(
-    VKFence& fence, const vk::PipelineLayoutCreateInfo& pipeline_layout_ci) {
-
-    return CreateOneShot(fence, pipeline_layouts,
-                         device.createPipelineLayoutUnique(pipeline_layout_ci));
-}
-
-template <typename EntryType, typename HandleType>
-HandleType VKResourceManager::CreateOneShot(VKFence& fence,
-                                            std::vector<std::unique_ptr<EntryType>>& vector,
-                                            vk::UniqueHandle<HandleType> handle) {
-    TickCreations();
-
-    const auto handle_value = *handle;
-    auto entry = std::make_unique<EntryType>(std::move(handle));
-    fence.Protect(entry.get());
-    vector.push_back(std::move(entry));
-    return handle_value;
-}
-
-void VKResourceManager::TickCreations() {
-    if (++tick_creations < TICKS_TO_DESTROY) {
-        return;
-    }
-    tick_creations = 0;
-
-    RemoveEntries(renderpasses);
-    RemoveEntries(image_views);
-    RemoveEntries(framebuffers);
-}
-
-template <typename T>
-void VKResourceManager::RemoveEntries(std::vector<T>& entries) {
-    const auto end = entries.begin() + std::min(OBJECTS_TO_DESTROY, entries.size());
-    entries.erase(
-        std::remove_if(entries.begin(), end, [](const auto& entry) { return entry->IsSignaled(); }),
-        end);
 }
 
 void VKResourceManager::GrowFences(std::size_t new_fences_count) {
