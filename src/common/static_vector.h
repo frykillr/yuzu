@@ -4,10 +4,9 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
-#include <tuple>
-#include <type_traits>
 #include "common/assert.h"
 
 /*
@@ -33,6 +32,13 @@
 template <typename T, std::size_t N>
 class StaticVector {
 public:
+    void Push(const T&& value) {
+        const std::size_t index = count++;
+        DEBUG_ASSERT_MSG(index < N, "Static vector overflow");
+
+        array[index] = std::move(value);
+    }
+
     void Push(const T& value) {
         const std::size_t index = count++;
         DEBUG_ASSERT_MSG(index < N, "Static vector overflow");
@@ -65,20 +71,20 @@ public:
         return array[i];
     }
 
-    const T* begin() const {
-        return array.data();
+    auto begin() const {
+        return array.begin();
     }
 
-    const T* end() const {
-        return array.data() + count;
+    auto end() const {
+        return array.begin() + count;
     }
 
-    T* begin() {
-        return array.data();
+    auto begin() {
+        return array.begin();
     }
 
-    T* end() {
-        return array.data() + count;
+    auto end() {
+        return array.begin() + count;
     }
 
     /// Returns the capacity of the vector.
@@ -99,12 +105,18 @@ private:
 
 template <typename T, std::size_t N>
 [[nodiscard]] bool operator<(const StaticVector<T, N>& left, const StaticVector<T, N>& right) {
-    return left.array < right.array;
+    return std::lexicographical_compare(left.begin(), left.end(), right.begin(), right.end());
 }
 
 template <typename T, std::size_t N>
 [[nodiscard]] bool operator==(const StaticVector<T, N>& left, const StaticVector<T, N>& right) {
-    return left.count == right.count && left.array == right.array;
+    if (left.count != right.count)
+        return false;
+    for (std::size_t i = 0; i < left.count; ++i) {
+        if (left.array[i] != right.array[i])
+            return false;
+    }
+    return true;
 }
 
 template <typename T, std::size_t N>

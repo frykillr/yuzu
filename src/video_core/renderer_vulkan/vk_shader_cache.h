@@ -26,6 +26,9 @@ using Shader = std::shared_ptr<CachedShader>;
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
 struct PipelineParams {
+    using ComponentType = VideoCore::Surface::ComponentType;
+    using PixelFormat = VideoCore::Surface::PixelFormat;
+
     struct VertexBinding {
         u32 index = 0;
         u32 stride = 0;
@@ -35,8 +38,8 @@ struct PipelineParams {
             return std::tie(index, stride, divisor);
         }
 
-        auto operator==(const VertexBinding& rhs) const {
-            return Tie() == rhs.Tie();
+        auto operator<(const VertexBinding& rhs) const {
+            return Tie() < rhs.Tie();
         }
     };
 
@@ -51,8 +54,8 @@ struct PipelineParams {
             return std::tie(index, buffer, type, size, offset);
         }
 
-        bool operator==(const VertexAttribute& rhs) const {
-            return Tie() == rhs.Tie();
+        bool operator<(const VertexAttribute& rhs) const {
+            return Tie() < rhs.Tie();
         }
     };
 
@@ -71,15 +74,12 @@ struct PipelineParams {
                             mask);
         }
 
-        bool operator==(const StencilFace& rhs) const {
-            return Tie() == rhs.Tie();
+        bool operator<(const StencilFace& rhs) const {
+            return Tie() < rhs.Tie();
         }
     };
 
     struct ColorAttachment {
-        using ComponentType = VideoCore::Surface::ComponentType;
-        using PixelFormat = VideoCore::Surface::PixelFormat;
-
         u32 index = 0;
         PixelFormat pixel_format = PixelFormat::Invalid;
         ComponentType component_type = ComponentType::Invalid;
@@ -88,8 +88,8 @@ struct PipelineParams {
             return std::tie(index, pixel_format, component_type);
         }
 
-        bool operator==(const ColorAttachment& rhs) const {
-            return Tie() == rhs.Tie();
+        bool operator<(const ColorAttachment& rhs) const {
+            return Tie() < rhs.Tie();
         }
     };
 
@@ -158,10 +158,8 @@ struct PipelineParams {
     struct {
         StaticVector<ColorAttachment, Maxwell::NumRenderTargets> color_map = {};
         // TODO(Rodrigo): Unify has_zeta into zeta_pixel_format and zeta_component_type.
-        VideoCore::Surface::PixelFormat zeta_pixel_format =
-            VideoCore::Surface::PixelFormat::Invalid;
-        VideoCore::Surface::ComponentType zeta_component_type =
-            VideoCore::Surface::ComponentType::Invalid;
+        PixelFormat zeta_pixel_format = PixelFormat::Invalid;
+        ComponentType zeta_component_type = ComponentType::Invalid;
         bool has_zeta = false;
         bool preserve_contents = false;
 
@@ -171,21 +169,15 @@ struct PipelineParams {
         }
     } renderpass;
 
-    bool operator==(const PipelineParams& rhs) const {
-        return vertex_input.Tie() == rhs.vertex_input.Tie() &&
-               input_assembly.Tie() == rhs.input_assembly.Tie() &&
-               viewport_state.Tie() == rhs.viewport_state.Tie() &&
-               rasterizer.Tie() == rhs.rasterizer.Tie() &&
-               multisampling.Tie() == rhs.multisampling.Tie() &&
-               depth_stencil.Tie() == rhs.depth_stencil.Tie() &&
-               color_blending.Tie() == rhs.color_blending.Tie() &&
-               renderpass.Tie() == rhs.renderpass.Tie();
-    }
-
-    u64 Hash() const {
-        // TODO(Rodrigo): Implement a hash.
-        // return Common::CityHash64(reinterpret_cast<const char*>(&params), sizeof(params));
-        return 0;
+    bool operator<(const PipelineParams& rhs) const {
+        return vertex_input.Tie() < rhs.vertex_input.Tie() ||
+               input_assembly.Tie() < rhs.input_assembly.Tie() ||
+               viewport_state.Tie() < rhs.viewport_state.Tie() ||
+               rasterizer.Tie() < rhs.rasterizer.Tie() ||
+               multisampling.Tie() < rhs.multisampling.Tie() ||
+               depth_stencil.Tie() < rhs.depth_stencil.Tie() ||
+               color_blending.Tie() < rhs.color_blending.Tie() ||
+               renderpass.Tie() < rhs.renderpass.Tie();
     }
 };
 
@@ -267,14 +259,6 @@ private:
         vk::UniqueRenderPass renderpass;
     };
 
-    struct HashFn {
-        std::size_t operator()(const CacheKey& key) const {
-            // TODO(Rodrigo): Hash shaders.
-            const auto& [shaders, pipeline] = key;
-            return static_cast<std::size_t>(pipeline.Hash());
-        }
-    };
-
     VKDevice& device_handler;
     const vk::Device device;
 
@@ -283,7 +267,7 @@ private:
     vk::UniquePipeline CreatePipeline(const PipelineParams& params, const Pipeline& pipeline) const;
     vk::UniqueRenderPass CreateRenderPass(const PipelineParams& params) const;
 
-    std::unordered_map<CacheKey, std::unique_ptr<CacheEntry>, HashFn> cache;
+    std::map<CacheKey, std::unique_ptr<CacheEntry>> cache;
     vk::UniqueDescriptorSetLayout empty_set_layout;
 };
 
