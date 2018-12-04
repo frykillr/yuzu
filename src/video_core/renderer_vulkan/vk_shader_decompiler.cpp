@@ -719,7 +719,11 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             const Id result = [&]() {
                 switch (instr.sub_op) {
-                    case SubOp::Ex2:
+                case SubOp::Cos:
+                    return OpCos(t_float, op_a);
+                case SubOp::Sin:
+                    return OpSin(t_float, op_a);
+                case SubOp::Ex2:
                     return OpExp2(t_float, op_a);
                 case SubOp::Lg2:
                     return OpLog2(t_float, op_a);
@@ -727,9 +731,8 @@ u32 SpirvModule::CompileInstr(u32 offset) {
                     return OpFDiv(t_float, Constant(t_float, 1.f), op_a);
                 case SubOp::Rsq:
                     return OpInverseSqrt(t_float, op_a);
-                case SubOp::Cos:
-                case SubOp::Sin:
                 case SubOp::Sqrt:
+                    return OpSqrt(t_float, op_a);
                 default:
                     UNIMPLEMENTED_MSG("Unhandled MUFU sub op: {0:x}",
                                       static_cast<unsigned>(instr.sub_op.Value()));
@@ -1066,6 +1069,38 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetPredicate(instr.fsetp.pred0,
                          CombinePredicates(instr.fsetp.op, Emit(OpLogicalNot(t_bool, predicate)),
                                            second_pred));
+        }
+        break;
+    }
+    case OpCode::Type::PredicateSetPredicate: {
+        switch (opcode->get().GetId()) {
+        case OpCode::Id::PSETP: {
+            const Id op_a = GetPredicateCondition(instr.psetp.pred12, instr.psetp.neg_pred12 != 0);
+            const Id op_b = GetPredicateCondition(instr.psetp.pred29, instr.psetp.neg_pred29 != 0);
+
+            // We can't use the constant predicate as destination.
+            ASSERT(instr.psetp.pred3 != static_cast<u64>(Pred::UnusedIndex));
+
+            const Id second_pred =
+                GetPredicateCondition(instr.psetp.pred39, instr.psetp.neg_pred39 != 0);
+
+            const Id predicate = CombinePredicates(instr.psetp.cond, op_a, op_b);
+
+            // Set the primary predicate to the result of Predicate OP SecondPredicate
+            SetPredicate(instr.psetp.pred3,
+                         CombinePredicates(instr.psetp.op, predicate, second_pred));
+
+            if (instr.psetp.pred0 != static_cast<u64>(Pred::UnusedIndex)) {
+                // Set the secondary predicate to the result of !Predicate OP SecondPredicate,
+                // if enabled
+                SetPredicate(instr.psetp.pred0,
+                             CombinePredicates(instr.psetp.op,
+                                               Emit(OpLogicalNot(t_bool, predicate)), second_pred));
+            }
+            break;
+        }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled predicate instruction: {}", opcode->get().GetName());
         }
         break;
     }
