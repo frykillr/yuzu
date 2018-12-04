@@ -719,21 +719,23 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             op_a = GetFloatOperandAbsNeg(op_a, instr.alu.abs_a, instr.alu.negate_a);
             const Id result = [&]() {
                 switch (instr.sub_op) {
+                    case SubOp::Ex2:
+                    return OpExp2(t_float, op_a);
+                case SubOp::Lg2:
+                    return OpLog2(t_float, op_a);
                 case SubOp::Rcp:
-                    return Emit(OpFDiv(t_float, Constant(t_float, 1.f), op_a));
+                    return OpFDiv(t_float, Constant(t_float, 1.f), op_a);
                 case SubOp::Rsq:
-                    return Emit(OpInverseSqrt(t_float, op_a));
+                    return OpInverseSqrt(t_float, op_a);
                 case SubOp::Cos:
                 case SubOp::Sin:
-                case SubOp::Ex2:
-                case SubOp::Lg2:
                 case SubOp::Sqrt:
                 default:
                     UNIMPLEMENTED_MSG("Unhandled MUFU sub op: {0:x}",
                                       static_cast<unsigned>(instr.sub_op.Value()));
                 }
             }();
-            SetRegisterToFloat(instr.gpr0, 0, result, instr.alu.saturate_d, true);
+            SetRegisterToFloat(instr.gpr0, 0, Emit(result), instr.alu.saturate_d, true);
             break;
         }
         case OpCode::Id::FMNMX_C:
@@ -753,9 +755,17 @@ u32 SpirvModule::CompileInstr(u32 offset) {
             SetRegisterToFloat(instr.gpr0, 0, value, false, true);
             break;
         }
-        default: {
-            UNIMPLEMENTED_MSG("Unhandled arithmetic instruction: {}", opcode->get().GetName());
+        case OpCode::Id::RRO_C:
+        case OpCode::Id::RRO_R:
+        case OpCode::Id::RRO_IMM: {
+            // Currently RRO is only implemented as a register move.
+            op_b = GetFloatOperandAbsNeg(op_b, instr.alu.abs_b, instr.alu.negate_b);
+            SetRegisterToFloat(instr.gpr0, 0, op_b, 1, 1);
+            LOG_WARNING(HW_GPU, "RRO instruction is incomplete");
+            break;
         }
+        default:
+            UNIMPLEMENTED_MSG("Unhandled arithmetic instruction: {}", opcode->get().GetName());
         }
         break;
     }
