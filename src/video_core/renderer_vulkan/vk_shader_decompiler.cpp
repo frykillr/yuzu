@@ -65,7 +65,8 @@ struct Subroutine {
 class ControlFlowAnalyzer {
 public:
     ControlFlowAnalyzer(const ProgramCode& program_code, u32 main_offset)
-        : program_code(program_code) {
+        : program_code{program_code}, shader_coverage_begin{main_offset}, shader_coverage_end{
+                                                                              main_offset + 1} {
 
         // Recursively finds all subroutines.
         const Subroutine& program_main = AddSubroutine(main_offset, PROGRAM_END);
@@ -78,10 +79,16 @@ public:
         return std::move(subroutines);
     }
 
+    std::size_t GetShaderLength() const {
+        return static_cast<std::size_t>(shader_coverage_end) * sizeof(u64);
+    }
+
 private:
     const ProgramCode& program_code;
     std::set<Subroutine> subroutines;
     std::map<std::pair<u32, u32>, ExitMethod> exit_method_map;
+    u32 shader_coverage_begin;
+    u32 shader_coverage_end;
 
     /// Adds and analyzes a new subroutine if it is not added yet.
     const Subroutine& AddSubroutine(u32 begin, u32 end) {
@@ -123,8 +130,11 @@ private:
             return exit_method;
 
         for (u32 offset = begin; offset != end && offset != PROGRAM_END; ++offset) {
+            shader_coverage_begin = std::min(shader_coverage_begin, offset);
+            shader_coverage_end = std::max(shader_coverage_end, offset + 1);
+
             const Instruction instr = {program_code[offset]};
-            if (const auto opcode = OpCode::Decode(instr)) {
+            if (const auto opcode = OpCode::Decode(instr); opcode) {
                 switch (opcode->get().GetId()) {
                 case OpCode::Id::EXIT: {
                     // The EXIT instruction can be predicated, which means that the shader can
@@ -1264,8 +1274,8 @@ void SpirvModule::DeclareFragmentOutputs() {
 }
 
 SpirvModule::SpirvModule(const ProgramCode& program_code, u32 main_offset, ShaderStage stage)
-    : Sirit::Module(0x00010000), program_code(program_code), main_offset(main_offset), stage(stage),
-      descriptor_set(static_cast<u32>(stage)) {
+    : Sirit::Module{0x00010000}, program_code{program_code}, main_offset{main_offset}, stage{stage},
+      descriptor_set{static_cast<u32>(stage)} {
 
     Decorate(t_cbuf_struct, spv::Decoration::Block);
     MemberDecorate(t_cbuf_struct, 0, spv::Decoration::Offset, {0});
@@ -1285,7 +1295,9 @@ SpirvModule::~SpirvModule() = default;
 
 Id SpirvModule::Decompile() {
     try {
-        const auto subroutines = ControlFlowAnalyzer(program_code, main_offset).GetSubroutines();
+        ControlFlowAnalyzer analyzer(program_code, main_offset);
+        shader_length = analyzer.GetShaderLength();
+        const auto subroutines = analyzer.GetSubroutines();
         return Generate(subroutines);
     } catch (const DecompileFail& exception) {
         LOG_ERROR(HW_GPU, "Shader decompilation failed: {}", exception.what());

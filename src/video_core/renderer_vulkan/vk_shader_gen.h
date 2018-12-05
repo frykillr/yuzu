@@ -144,6 +144,7 @@ private:
 };
 
 struct ShaderEntries {
+    std::size_t shader_length;
     u32 descriptor_set;
     std::vector<ConstBufferEntry> const_buffers;
     std::vector<SamplerEntry> samplers;

@@ -39,6 +39,7 @@ public:
 
     ShaderEntries GetEntries() const {
         ShaderEntries entries;
+        entries.shader_length = shader_length;
         entries.descriptor_set = descriptor_set;
         for (const auto& const_buffer_entry : declr_const_buffers) {
             if (const_buffer_entry.IsUsed()) {
@@ -283,6 +284,7 @@ private:
     const u32 main_offset;
     const Maxwell3D::Regs::ShaderStage stage;
     const u32 descriptor_set;
+    std::size_t shader_length;
     Tegra::Shader::Header header;
 
     /// Binding iterator

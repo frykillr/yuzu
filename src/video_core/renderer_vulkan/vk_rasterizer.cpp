@@ -331,7 +331,7 @@ void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
 void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
     res_cache->InvalidateRegion(addr, size);
-    // shader_cache->InvalidateRegion(addr, size);
+    shader_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
 }
 
