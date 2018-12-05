@@ -249,8 +249,7 @@ void RasterizerVulkan::DrawArrays() {
                                   vk::AccessFlagBits::eColorAttachmentWrite);
 
     if (zeta_surface != nullptr) {
-        zeta_surface->Transition(cmdbuf, zeta_surface->GetAspectMask(),
-                                 vk::ImageLayout::eDepthStencilAttachmentOptimal,
+        zeta_surface->Transition(cmdbuf, vk::ImageLayout::eDepthStencilAttachmentOptimal,
                                  vk::PipelineStageFlagBits::eLateFragmentTests,
                                  vk::AccessFlagBits::eDepthStencilAttachmentRead |
                                      vk::AccessFlagBits::eDepthStencilAttachmentWrite);
@@ -310,17 +309,16 @@ void RasterizerVulkan::Clear() {
     }
     if (use_depth || use_stencil) {
         Surface zeta_surface = res_cache->GetDepthBufferSurface(cmdbuf, false);
-        const auto aspect_mask = zeta_surface->GetAspectMask();
 
-        zeta_surface->Transition(cmdbuf, aspect_mask, vk::ImageLayout::eTransferDstOptimal,
+        zeta_surface->Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal,
                                  vk::PipelineStageFlagBits::eTransfer,
                                  vk::AccessFlagBits::eTransferWrite);
 
         const vk::ClearDepthStencilValue clear(regs.clear_depth,
                                                static_cast<u32>(regs.clear_stencil));
-        cmdbuf.clearDepthStencilImage(zeta_surface->GetHandle(),
-                                      vk::ImageLayout::eTransferDstOptimal, clear,
-                                      {vk::ImageSubresourceRange(aspect_mask, 0, 1, 0, 1)});
+        cmdbuf.clearDepthStencilImage(
+            zeta_surface->GetHandle(), vk::ImageLayout::eTransferDstOptimal, clear,
+            {vk::ImageSubresourceRange(zeta_surface->GetAspectMask(), 0, 1, 0, 1)});
     }
 
     sched.EndRecord(cmdbuf);
@@ -333,7 +331,7 @@ void RasterizerVulkan::FlushRegion(Tegra::GPUVAddr addr, u64 size) {}
 
 void RasterizerVulkan::InvalidateRegion(Tegra::GPUVAddr addr, u64 size) {
     res_cache->InvalidateRegion(addr, size);
-    //shader_cache->InvalidateRegion(addr, size);
+    // shader_cache->InvalidateRegion(addr, size);
     buffer_cache->InvalidateRegion(addr, size);
 }
 
@@ -576,8 +574,7 @@ void RasterizerVulkan::SetupTextures(PipelineState& state, const Shader& shader,
         UNIMPLEMENTED_IF(surface == nullptr);
 
         constexpr auto pipeline_stage = vk::PipelineStageFlagBits::eAllGraphics;
-        surface->Transition(cmdbuf, surface->GetAspectMask(),
-                            vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
+        surface->Transition(cmdbuf, vk::ImageLayout::eShaderReadOnlyOptimal, pipeline_stage,
                             vk::AccessFlagBits::eShaderRead);
 
         const auto [write, image_info] = state.CaptureDescriptorWriteImage();

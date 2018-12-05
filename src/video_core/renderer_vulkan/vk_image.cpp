@@ -7,6 +7,8 @@
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_image.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 VKImage::VKImage(vk::Device device, const vk::ImageCreateInfo& image_ci,

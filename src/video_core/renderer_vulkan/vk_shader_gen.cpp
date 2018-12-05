@@ -51,6 +51,7 @@ ProgramResult GenerateFragmentShader(const ShaderSetup& setup) {
     module.Emit(module.OpReturn());
     module.Emit(module.OpFunctionEnd());
     module.AddEntryPoint(spv::ExecutionModel::Fragment, main, "main", module.GetInterfaces());
+    module.AddExecutionMode(main, spv::ExecutionMode::OriginUpperLeft);
 
     const auto code = module.Assemble();
     FILE* out = fopen("D:\\fragment.spv", "wb");

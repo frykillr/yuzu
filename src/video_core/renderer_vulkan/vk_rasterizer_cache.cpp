@@ -228,6 +228,7 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
 
         usage |= attachment_usage;
     }
+
     return {{},
             SurfaceTargetToImageVK(target),
             MaxwellToVK::SurfaceFormat(pixel_format, component_type),
@@ -308,13 +309,12 @@ void CachedSurface::UploadVKTexture(vk::CommandBuffer cmdbuf) {
     if (params.type == SurfaceType::Fill)
         return;
 
-    Transition(cmdbuf, GetAspectMask(), vk::ImageLayout::eTransferDstOptimal,
-               vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite);
+    Transition(cmdbuf, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer,
+               vk::AccessFlagBits::eTransferWrite);
 
     const vk::BufferImageCopy copy(0, 0, 0, {GetAspectMask(), 0, 0, 1}, {0, 0, 0},
                                    {params.width, params.height, params.depth});
-    if (GetAspectMask() ==
-        (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
+    if (GetAspectMask() == (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)) {
         vk::BufferImageCopy depth = copy;
         vk::BufferImageCopy stencil = copy;
         depth.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eDepth;
