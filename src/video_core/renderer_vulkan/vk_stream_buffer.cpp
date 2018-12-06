@@ -78,8 +78,8 @@ std::tuple<u8*, u64, vk::Buffer, bool> VKStreamBuffer::Reserve(u64 size, bool ke
         std::for_each(resources.begin(), resources.begin() + used_resources,
                       [&](const auto& resource) { resource->Wait(); });
         used_resources = 0;
-
         buffer_pos = 0;
+
         invalidate = true;
     }
 

@@ -49,6 +49,13 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
     return program_code;
 }
 
+static vk::StencilOpState GetStencilFaceState(const PipelineParams::StencilFace& state) {
+    return vk::StencilOpState(MaxwellToVK::StencilOp(state.op_fail),
+        MaxwellToVK::StencilOp(state.op_zpass),
+        MaxwellToVK::StencilOp(state.op_zfail),
+        MaxwellToVK::ComparisonOp(state.func_func), {}, state.mask
+}
+
 class CachedShader::DescriptorPool final : public VKFencedPool {
 public:
     explicit DescriptorPool(vk::Device device,
@@ -273,7 +280,7 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
                                                    vk::RenderPass renderpass) const {
     const auto& vertex_input = params.vertex_input;
     const auto& input_assembly = params.input_assembly;
-    const auto& depth_stencil = params.depth_stencil;
+    const auto& ds = params.depth_stencil;
     const auto& viewport_state = params.viewport_state;
 
     StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
@@ -311,13 +318,13 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const vk::PipelineMultisampleStateCreateInfo multisampling_ci(
         {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);
 
-    const vk::CompareOp depth_test_compare =
-        depth_stencil.depth_test_enable
-            ? MaxwellToVK::ComparisonOp(depth_stencil.depth_test_function)
-            : vk::CompareOp::eAlways;
+    const vk::CompareOp depth_test_compare = ds.depth_test_enable
+                                                 ? MaxwellToVK::ComparisonOp(ds.depth_test_function)
+                                                 : vk::CompareOp::eAlways;
+
     const vk::PipelineDepthStencilStateCreateInfo depth_stencil_ci(
-        {}, depth_stencil.depth_test_enable, depth_stencil.depth_write_enable, depth_test_compare,
-        0, false, {}, {}, 0.f, 0.f);
+        {}, ds.depth_test_enable, ds.depth_write_enable, depth_test_compare, ds.depth_bounds_enable,
+        ds.stencil_enable, {}, {}, ds.depth_bounds_min, ds.depth_bounds_max);
 
     const vk::PipelineColorBlendAttachmentState color_blend_attachment(
         false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
