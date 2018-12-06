@@ -20,10 +20,14 @@ VKBufferCache::VKBufferCache(RasterizerVulkan& rasterizer, VKResourceManager& re
                              VKScheduler& sched, u64 size)
     : RasterizerCache{rasterizer} {
 
-    stream_buffer = std::make_unique<VKStreamBuffer>(
-        resource_manager, device_handler, memory_manager, sched, size,
-        vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer |
-            vk::BufferUsageFlagBits::eUniformBuffer);
+    const auto usage = vk::BufferUsageFlagBits::eVertexBuffer |
+                       vk::BufferUsageFlagBits::eIndexBuffer |
+                       vk::BufferUsageFlagBits::eUniformBuffer;
+    const auto access = vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead |
+                        vk::AccessFlagBits::eUniformRead;
+    stream_buffer = std::make_unique<VKStreamBuffer>(resource_manager, device_handler,
+                                                     memory_manager, sched, size, usage, access,
+                                                     vk::PipelineStageFlagBits::eAllCommands);
 }
 
 VKBufferCache::~VKBufferCache() = default;

@@ -53,10 +53,12 @@ private:
 
 VKStreamBuffer::VKStreamBuffer(VKResourceManager& resource_manager, VKDevice& device_handler,
                                VKMemoryManager& memory_manager, VKScheduler& sched, u64 size,
-                               vk::BufferUsageFlags usage)
-    : resource_manager(resource_manager), device(device_handler.GetLogical()),
-      graphics_family(device_handler.GetGraphicsFamily()), memory_manager(memory_manager),
-      sched(sched), has_device_memory(!memory_manager.IsMemoryUnified()), buffer_size(size) {
+                               vk::BufferUsageFlags usage, vk::AccessFlags access,
+                               vk::PipelineStageFlags pipeline_stage)
+    : resource_manager{resource_manager}, device{device_handler.GetLogical()},
+      graphics_family{device_handler.GetGraphicsFamily()}, memory_manager{memory_manager},
+      sched{sched}, has_device_memory{!memory_manager.IsMemoryUnified()},
+      buffer_size{size}, access{access}, pipeline_stage{pipeline_stage} {
 
     CreateBuffers(memory_manager, usage);
     GrowResources(RESOURCE_RESERVE);
@@ -96,12 +98,11 @@ void VKStreamBuffer::Send(VKFence& fence, vk::CommandBuffer cmdbuf, u64 size) {
         const vk::BufferCopy copy_region(buffer_pos, buffer_pos, size);
         cmdbuf.copyBuffer(*mappeable_buffer, *device_buffer, {copy_region});
 
-        // FIXME(Rodrigo): Move eVertexAttributeRead and eVertexShader to a constructor argument.
-        vk::BufferMemoryBarrier barrier(vk::AccessFlagBits::eTransferWrite,
-                                        vk::AccessFlagBits::eVertexAttributeRead, graphics_family,
-                                        graphics_family, *device_buffer, buffer_pos, size);
-        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                               vk::PipelineStageFlagBits::eVertexInput, {}, {}, {barrier}, {});
+        const vk::BufferMemoryBarrier barrier(vk::AccessFlagBits::eTransferWrite, access,
+                                              graphics_family, graphics_family, *device_buffer,
+                                              buffer_pos, size);
+        cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, pipeline_stage, {}, {},
+                               {barrier}, {});
     }
 
     if (used_resources + 1 >= resources.size()) {

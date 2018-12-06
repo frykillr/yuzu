@@ -25,7 +25,8 @@ class VKStreamBuffer {
 public:
     explicit VKStreamBuffer(VKResourceManager& resource_manager, VKDevice& device_handler,
                             VKMemoryManager& memory_manager, VKScheduler& sched, u64 size,
-                            vk::BufferUsageFlags usage);
+                            vk::BufferUsageFlags usage, vk::AccessFlags access,
+                            vk::PipelineStageFlags pipeline_stage);
     ~VKStreamBuffer();
 
     /**
@@ -48,9 +49,11 @@ private:
     VKMemoryManager& memory_manager;
     VKScheduler& sched;
     const vk::Device device;
-    const u32 graphics_family;
     const u64 buffer_size;
+    const u32 graphics_family;
     const bool has_device_memory;
+    const vk::AccessFlags access;
+    const vk::PipelineStageFlags pipeline_stage;
 
     const VKMemoryCommit* mappeable_commit{};
     const VKMemoryCommit* device_commit{};

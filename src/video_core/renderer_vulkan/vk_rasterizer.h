@@ -99,7 +99,7 @@ private:
 
     vk::UniqueSampler dummy_sampler;
 
-    // FIXME(Rodrigo): Invalidate me on shader flush
+    // TODO(Rodrigo): Invalidate on image destruction
     std::map<FramebufferCacheKey, vk::UniqueFramebuffer> framebuffer_cache;
 
     enum class AccelDraw { Disabled, Arrays, Indexed };

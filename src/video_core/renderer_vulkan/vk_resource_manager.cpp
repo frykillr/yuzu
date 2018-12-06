@@ -111,7 +111,6 @@ bool VKFence::Tick(bool gpu_wait, bool owner_wait) {
         // Wait for the fence if it has been requested.
         device.waitForFences({*handle}, true, std::numeric_limits<u64>::max());
     } else {
-        // FIXME(Rodrigo): Check if vkGetFenceStatus is needed to be locked
         if (device.getFenceStatus(*handle) != vk::Result::eSuccess) {
             // Vulkan fence is not ready, not much it can do here
             return false;
