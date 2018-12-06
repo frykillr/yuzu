@@ -50,10 +50,11 @@ static VKShader::ProgramCode GetShaderCode(VAddr addr) {
 }
 
 static vk::StencilOpState GetStencilFaceState(const PipelineParams::StencilFace& state) {
-    return vk::StencilOpState(MaxwellToVK::StencilOp(state.op_fail),
-        MaxwellToVK::StencilOp(state.op_zpass),
-        MaxwellToVK::StencilOp(state.op_zfail),
-        MaxwellToVK::ComparisonOp(state.func_func), {}, state.mask
+    return vk::StencilOpState(MaxwellToVK::StencilOp(state.action_stencil_fail),
+                              MaxwellToVK::StencilOp(state.action_depth_pass),
+                              MaxwellToVK::StencilOp(state.action_depth_fail),
+                              MaxwellToVK::ComparisonOp(state.test_func), state.test_mask,
+                              state.write_mask, state.test_ref);
 }
 
 class CachedShader::DescriptorPool final : public VKFencedPool {
@@ -278,19 +279,19 @@ vk::UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(const PipelinePar
 vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
                                                    const Pipeline& pipeline,
                                                    vk::RenderPass renderpass) const {
-    const auto& vertex_input = params.vertex_input;
-    const auto& input_assembly = params.input_assembly;
+    const auto& vi = params.vertex_input;
+    const auto& ia = params.input_assembly;
     const auto& ds = params.depth_stencil;
-    const auto& viewport_state = params.viewport_state;
+    const auto& vs = params.viewport_state;
 
     StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
-    for (const auto& binding : vertex_input.bindings) {
+    for (const auto& binding : vi.bindings) {
         ASSERT(binding.divisor == 0);
         vertex_bindings.Push(vk::VertexInputBindingDescription(binding.index, binding.stride));
     }
 
     StaticVector<vk::VertexInputAttributeDescription, Maxwell::NumVertexArrays> vertex_attributes;
-    for (const auto& attribute : vertex_input.attributes) {
+    for (const auto& attribute : vi.attributes) {
         vertex_attributes.Push(vk::VertexInputAttributeDescription(
             attribute.index, attribute.buffer,
             MaxwellToVK::VertexFormat(attribute.type, attribute.size), attribute.offset));
@@ -300,15 +301,13 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
         {}, static_cast<u32>(vertex_bindings.Size()), vertex_bindings.Data(),
         static_cast<u32>(vertex_attributes.Size()), vertex_attributes.Data());
 
-    const vk::PrimitiveTopology primitive_topology =
-        MaxwellToVK::PrimitiveTopology(input_assembly.topology);
-    const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci(
-        {}, primitive_topology, input_assembly.primitive_restart_enable);
+    const vk::PrimitiveTopology primitive_topology = MaxwellToVK::PrimitiveTopology(ia.topology);
+    const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci({}, primitive_topology,
+                                                                     ia.primitive_restart_enable);
 
-    const vk::Viewport viewport(0.f, 0.f, viewport_state.width, viewport_state.height, 0.f, 1.f);
+    const vk::Viewport viewport(0.f, 0.f, vs.width, vs.height, 0.f, 1.f);
     // TODO(Rodrigo): Read scissor values instead of using viewport
-    const vk::Rect2D scissor(
-        {0, 0}, {static_cast<u32>(viewport_state.width), static_cast<u32>(viewport_state.height)});
+    const vk::Rect2D scissor({0, 0}, {static_cast<u32>(vs.width), static_cast<u32>(vs.height)});
     const vk::PipelineViewportStateCreateInfo viewport_state_ci({}, 1, &viewport, 1, &scissor);
 
     const vk::PipelineRasterizationStateCreateInfo rasterizer_ci(
@@ -324,7 +323,8 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
 
     const vk::PipelineDepthStencilStateCreateInfo depth_stencil_ci(
         {}, ds.depth_test_enable, ds.depth_write_enable, depth_test_compare, ds.depth_bounds_enable,
-        ds.stencil_enable, {}, {}, ds.depth_bounds_min, ds.depth_bounds_max);
+        ds.stencil_enable, GetStencilFaceState(ds.front_stencil),
+        GetStencilFaceState(ds.back_stencil), ds.depth_bounds_min, ds.depth_bounds_max);
 
     const vk::PipelineColorBlendAttachmentState color_blend_attachment(
         false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,

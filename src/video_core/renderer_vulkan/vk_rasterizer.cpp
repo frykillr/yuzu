@@ -619,15 +619,36 @@ RenderPassParams RasterizerVulkan::GetRenderPassParams() const {
 
 void RasterizerVulkan::SyncDepthStencil(PipelineParams& params) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
-
     auto& ds = params.depth_stencil;
+
+    ds.depth_test_function = regs.depth_test_func;
     ds.depth_test_enable = regs.depth_test_enable == 1;
     ds.depth_write_enable = regs.depth_write_enabled == 1;
-    ds.depth_test_function = regs.depth_test_func;
+
+    ds.stencil_enable = regs.stencil_enable == 1;
+
+    auto& front = ds.front_stencil;
+    front.test_func = regs.stencil_front_func_func;
+    front.test_ref = regs.stencil_front_func_ref;
+    front.test_mask = regs.stencil_front_func_mask;
+    front.action_stencil_fail = regs.stencil_front_op_fail;
+    front.action_depth_fail = regs.stencil_front_op_zfail;
+    front.action_depth_pass = regs.stencil_front_op_zpass;
+    front.write_mask = regs.stencil_front_mask;
+
+    if (regs.stencil_two_side_enable) {
+        auto& back = ds.back_stencil;
+        back.test_func = regs.stencil_back_func_func;
+        back.test_ref = regs.stencil_back_func_ref;
+        back.test_mask = regs.stencil_back_func_mask;
+        back.action_stencil_fail = regs.stencil_back_op_fail;
+        back.action_depth_fail = regs.stencil_back_op_zfail;
+        back.action_depth_pass = regs.stencil_back_op_zpass;
+        back.write_mask = regs.stencil_back_mask;
+    }
+
+    // TODO(Rodrigo): Read from registers, luckily this is core in Vulkan unlike OpenGL
     ds.depth_bounds_enable = false;
-    ds.stencil_enable = false;
-    // ds.front_stencil = ;
-    // ds.back_stencil = ;
     ds.depth_bounds_min = 0.f;
     ds.depth_bounds_max = 0.f;
 }

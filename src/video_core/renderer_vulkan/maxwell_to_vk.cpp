@@ -203,4 +203,35 @@ vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
     return vk::IndexType::eUint16;
 }
 
+vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op) {
+        switch (stencil_op) {
+    case Maxwell::StencilOp::Keep:
+    case Maxwell::StencilOp::KeepOGL:
+        return vk::StencilOp::eKeep;
+    case Maxwell::StencilOp::Zero:
+    case Maxwell::StencilOp::ZeroOGL:
+        return vk::StencilOp::eZero;
+    case Maxwell::StencilOp::Replace:
+    case Maxwell::StencilOp::ReplaceOGL:
+        return vk::StencilOp::eReplace;
+    case Maxwell::StencilOp::Incr:
+    case Maxwell::StencilOp::IncrOGL:
+        return vk::StencilOp::eIncrementAndClamp;
+    case Maxwell::StencilOp::Decr:
+    case Maxwell::StencilOp::DecrOGL:
+        return vk::StencilOp::eDecrementAndClamp;
+    case Maxwell::StencilOp::Invert:
+    case Maxwell::StencilOp::InvertOGL:
+        return vk::StencilOp::eInvert;
+    case Maxwell::StencilOp::IncrWrap:
+    case Maxwell::StencilOp::IncrWrapOGL:
+        return vk::StencilOp::eIncrementAndWrap;
+    case Maxwell::StencilOp::DecrWrap:
+    case Maxwell::StencilOp::DecrWrapOGL:
+        return vk::StencilOp::eDecrementAndWrap;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented stencil op={}", static_cast<u32>(stencil_op));
+    return vk::StencilOp::eKeep;
+}
+
 } // namespace Vulkan::MaxwellToVK

@@ -62,18 +62,17 @@ struct PipelineParams {
     };
 
     struct StencilFace {
-        u32 enable = false;
-        Maxwell::StencilOp op_fail = Maxwell::StencilOp::Keep;
-        Maxwell::StencilOp op_zfail = Maxwell::StencilOp::Keep;
-        Maxwell::StencilOp op_zpass = Maxwell::StencilOp::Keep;
-        Maxwell::ComparisonOp func_func = Maxwell::ComparisonOp::Always;
-        s32 func_ref = 0;
-        u32 func_mask = 0;
-        u32 mask = 0;
+        Maxwell::StencilOp action_stencil_fail = Maxwell::StencilOp::Keep;
+        Maxwell::StencilOp action_depth_fail = Maxwell::StencilOp::Keep;
+        Maxwell::StencilOp action_depth_pass = Maxwell::StencilOp::Keep;
+        Maxwell::ComparisonOp test_func = Maxwell::ComparisonOp::Always;
+        s32 test_ref = 0;
+        u32 test_mask = 0;
+        u32 write_mask = 0;
 
         auto Tie() const {
-            return std::tie(enable, op_fail, op_zfail, op_zpass, func_func, func_ref, func_mask,
-                            mask);
+            return std::tie(action_stencil_fail, action_depth_fail, action_depth_pass, test_func,
+                            test_ref, test_mask, write_mask);
         }
 
         bool operator<(const StencilFace& rhs) const {
