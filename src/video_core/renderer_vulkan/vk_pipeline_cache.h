@@ -80,6 +80,26 @@ struct PipelineParams {
         }
     };
 
+    struct BlendingAttachment {
+        bool enable = false;
+        Maxwell::Blend::Equation rgb_equation = Maxwell::Blend::Equation::Add;
+        Maxwell::Blend::Factor src_rgb_func = Maxwell::Blend::Factor::One;
+        Maxwell::Blend::Factor dst_rgb_func = Maxwell::Blend::Factor::Zero;
+        Maxwell::Blend::Equation a_equation = Maxwell::Blend::Equation::Add;
+        Maxwell::Blend::Factor src_a_func = Maxwell::Blend::Factor::One;
+        Maxwell::Blend::Factor dst_a_func = Maxwell::Blend::Factor::Zero;
+        std::array<bool, 4> components{true, true, true, true};
+
+        auto Tie() const {
+            return std::tie(enable, rgb_equation, src_rgb_func, dst_rgb_func, a_equation,
+                            src_a_func, dst_a_func, components);
+        }
+
+        bool operator<(const BlendingAttachment& rhs) const {
+            return Tie() < rhs.Tie();
+        }
+    };
+
     struct {
         StaticVector<VertexBinding, Maxwell::NumVertexArrays> bindings;
         StaticVector<VertexAttribute, Maxwell::NumVertexAttributes> attributes;
@@ -137,8 +157,12 @@ struct PipelineParams {
     } depth_stencil;
 
     struct {
+        std::array<float, 4> blend_constants{};
+        std::array<BlendingAttachment, Maxwell::NumRenderTargets> attachments;
+        bool independent_blend = false;
+
         auto Tie() const {
-            return std::tie();
+            return std::tie(blend_constants, attachments, independent_blend);
         }
     } color_blending;
 

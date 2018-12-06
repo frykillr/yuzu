@@ -16,8 +16,8 @@ namespace Vulkan {
 // TODO(Rodrigo): Fine tune these numbers.
 constexpr u32 COMMAND_BUFFER_POOL_SIZE = 0x1000;
 
-constexpr u32 FENCES_COUNT = 0x4;
-constexpr u32 FENCES_GROW_STEP = 0x4;
+constexpr u32 FENCES_COUNT = 0x40;
+constexpr u32 FENCES_GROW_STEP = 0x40;
 
 using namespace Resource;
 

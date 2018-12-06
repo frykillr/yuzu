@@ -187,6 +187,7 @@ void RasterizerVulkan::DrawArrays() {
 
     SyncDepthStencil(params);
     SyncInputAssembly(params);
+    SyncColorBlending(params);
     SyncViewportState(params);
 
     // Calculate buffer size.
@@ -655,16 +656,60 @@ void RasterizerVulkan::SyncDepthStencil(PipelineParams& params) {
 
 void RasterizerVulkan::SyncInputAssembly(PipelineParams& params) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
-
     auto& ia = params.input_assembly;
+
     ia.topology = regs.draw.topology;
     // ia.primitive_restart_enable = ;
 }
 
+void RasterizerVulkan::SyncColorBlending(PipelineParams& params) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+    auto& cd = params.color_blending;
+
+    cd.blend_constants = {regs.blend_color.r, regs.blend_color.g, regs.blend_color.b,
+                          regs.blend_color.a};
+    cd.independent_blend = regs.independent_blend_enable == 1;
+
+    if (!cd.independent_blend) {
+        auto& blend = cd.attachments[0];
+        const auto& src = regs.blend;
+
+        blend.enable = src.enable[0] != 0;
+        if (blend.enable) {
+            blend.rgb_equation = src.equation_rgb;
+            blend.src_rgb_func = src.factor_source_rgb;
+            blend.dst_rgb_func = src.factor_dest_rgb;
+            blend.a_equation = src.equation_a;
+            blend.src_a_func = src.factor_source_a;
+            blend.dst_a_func = src.factor_dest_a;
+            // TODO(Rodrigo): Read from registers
+            blend.components = {true, true, true, true};
+        }
+        return;
+    }
+
+    for (std::size_t i = 0; i < Tegra::Engines::Maxwell3D::Regs::NumRenderTargets; i++) {
+        auto& blend = cd.attachments[i];
+        const auto& src = regs.independent_blend[i];
+
+        blend.enable = regs.blend.enable[i] != 0;
+        if (!blend.enable)
+            continue;
+        blend.rgb_equation = src.equation_rgb;
+        blend.src_rgb_func = src.factor_source_rgb;
+        blend.dst_rgb_func = src.factor_dest_rgb;
+        blend.a_equation = src.equation_a;
+        blend.src_a_func = src.factor_source_a;
+        blend.dst_a_func = src.factor_dest_a;
+        // TODO(Rodrigo): Read from registers
+        blend.components = {true, true, true, true};
+    }
+}
+
 void RasterizerVulkan::SyncViewportState(PipelineParams& params) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
-
     auto& vs = params.viewport_state;
+
     vs.width = static_cast<float>(regs.viewports[0].width);
     vs.height = static_cast<float>(regs.viewports[0].height);
 }

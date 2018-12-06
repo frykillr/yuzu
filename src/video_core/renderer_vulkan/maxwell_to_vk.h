@@ -29,4 +29,8 @@ vk::IndexType IndexFormat(Maxwell::IndexFormat index_format);
 
 vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op);
 
+vk::BlendOp BlendEquation(Maxwell::Blend::Equation equation);
+
+vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor);
+
 } // namespace Vulkan::MaxwellToVK

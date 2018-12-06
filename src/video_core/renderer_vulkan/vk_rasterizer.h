@@ -80,6 +80,7 @@ private:
 
     void SyncDepthStencil(PipelineParams& params);
     void SyncInputAssembly(PipelineParams& params);
+    void SyncColorBlending(PipelineParams& params);
     void SyncViewportState(PipelineParams& params);
 
     Core::Frontend::EmuWindow& render_window;

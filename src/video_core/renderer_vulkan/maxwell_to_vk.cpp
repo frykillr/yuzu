@@ -204,7 +204,7 @@ vk::IndexType IndexFormat(Maxwell::IndexFormat index_format) {
 }
 
 vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op) {
-        switch (stencil_op) {
+    switch (stencil_op) {
     case Maxwell::StencilOp::Keep:
     case Maxwell::StencilOp::KeepOGL:
         return vk::StencilOp::eKeep;
@@ -232,6 +232,92 @@ vk::StencilOp StencilOp(Maxwell::StencilOp stencil_op) {
     }
     UNIMPLEMENTED_MSG("Unimplemented stencil op={}", static_cast<u32>(stencil_op));
     return vk::StencilOp::eKeep;
+}
+
+vk::BlendOp BlendEquation(Maxwell::Blend::Equation equation) {
+    switch (equation) {
+    case Maxwell::Blend::Equation::Add:
+    case Maxwell::Blend::Equation::AddGL:
+        return vk::BlendOp::eAdd;
+    case Maxwell::Blend::Equation::Subtract:
+    case Maxwell::Blend::Equation::SubtractGL:
+        return vk::BlendOp::eSubtract;
+    case Maxwell::Blend::Equation::ReverseSubtract:
+    case Maxwell::Blend::Equation::ReverseSubtractGL:
+        return vk::BlendOp::eReverseSubtract;
+    case Maxwell::Blend::Equation::Min:
+    case Maxwell::Blend::Equation::MinGL:
+        return vk::BlendOp::eMin;
+    case Maxwell::Blend::Equation::Max:
+    case Maxwell::Blend::Equation::MaxGL:
+        return vk::BlendOp::eMax;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented blend equation={}", static_cast<u32>(equation));
+    return vk::BlendOp::eAdd;
+}
+
+vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor) {
+    switch (factor) {
+    case Maxwell::Blend::Factor::Zero:
+    case Maxwell::Blend::Factor::ZeroGL:
+        return vk::BlendFactor::eZero;
+    case Maxwell::Blend::Factor::One:
+    case Maxwell::Blend::Factor::OneGL:
+        return vk::BlendFactor::eOne;
+    case Maxwell::Blend::Factor::SourceColor:
+    case Maxwell::Blend::Factor::SourceColorGL:
+        return vk::BlendFactor::eSrcColor;
+    case Maxwell::Blend::Factor::OneMinusSourceColor:
+    case Maxwell::Blend::Factor::OneMinusSourceColorGL:
+        return vk::BlendFactor::eOneMinusSrcColor;
+    case Maxwell::Blend::Factor::SourceAlpha:
+    case Maxwell::Blend::Factor::SourceAlphaGL:
+        return vk::BlendFactor::eSrcAlpha;
+    case Maxwell::Blend::Factor::OneMinusSourceAlpha:
+    case Maxwell::Blend::Factor::OneMinusSourceAlphaGL:
+        return vk::BlendFactor::eOneMinusSrcAlpha;
+    case Maxwell::Blend::Factor::DestAlpha:
+    case Maxwell::Blend::Factor::DestAlphaGL:
+        return vk::BlendFactor::eDstAlpha;
+    case Maxwell::Blend::Factor::OneMinusDestAlpha:
+    case Maxwell::Blend::Factor::OneMinusDestAlphaGL:
+        return vk::BlendFactor::eOneMinusDstAlpha;
+    case Maxwell::Blend::Factor::DestColor:
+    case Maxwell::Blend::Factor::DestColorGL:
+        return vk::BlendFactor::eDstColor;
+    case Maxwell::Blend::Factor::OneMinusDestColor:
+    case Maxwell::Blend::Factor::OneMinusDestColorGL:
+        return vk::BlendFactor::eOneMinusDstColor;
+    case Maxwell::Blend::Factor::SourceAlphaSaturate:
+    case Maxwell::Blend::Factor::SourceAlphaSaturateGL:
+        return vk::BlendFactor::eSrcAlphaSaturate;
+    case Maxwell::Blend::Factor::Source1Color:
+    case Maxwell::Blend::Factor::Source1ColorGL:
+        return vk::BlendFactor::eSrc1Color;
+    case Maxwell::Blend::Factor::OneMinusSource1Color:
+    case Maxwell::Blend::Factor::OneMinusSource1ColorGL:
+        return vk::BlendFactor::eOneMinusSrc1Color;
+    case Maxwell::Blend::Factor::Source1Alpha:
+    case Maxwell::Blend::Factor::Source1AlphaGL:
+        return vk::BlendFactor::eSrc1Alpha;
+    case Maxwell::Blend::Factor::OneMinusSource1Alpha:
+    case Maxwell::Blend::Factor::OneMinusSource1AlphaGL:
+        return vk::BlendFactor::eOneMinusSrc1Alpha;
+    case Maxwell::Blend::Factor::ConstantColor:
+    case Maxwell::Blend::Factor::ConstantColorGL:
+        return vk::BlendFactor::eConstantColor;
+    case Maxwell::Blend::Factor::OneMinusConstantColor:
+    case Maxwell::Blend::Factor::OneMinusConstantColorGL:
+        return vk::BlendFactor::eOneMinusConstantColor;
+    case Maxwell::Blend::Factor::ConstantAlpha:
+    case Maxwell::Blend::Factor::ConstantAlphaGL:
+        return vk::BlendFactor::eConstantAlpha;
+    case Maxwell::Blend::Factor::OneMinusConstantAlpha:
+    case Maxwell::Blend::Factor::OneMinusConstantAlphaGL:
+        return vk::BlendFactor::eOneMinusConstantAlpha;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented blend factor={}", static_cast<u32>(factor));
+    return vk::BlendFactor::eZero;
 }
 
 } // namespace Vulkan::MaxwellToVK

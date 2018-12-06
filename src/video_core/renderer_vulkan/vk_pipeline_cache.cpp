@@ -282,6 +282,7 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const auto& vi = params.vertex_input;
     const auto& ia = params.input_assembly;
     const auto& ds = params.depth_stencil;
+    const auto& cd = params.color_blending;
     const auto& vs = params.viewport_state;
 
     StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
@@ -326,13 +327,32 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
         ds.stencil_enable, GetStencilFaceState(ds.front_stencil),
         GetStencilFaceState(ds.back_stencil), ds.depth_bounds_min, ds.depth_bounds_max);
 
-    const vk::PipelineColorBlendAttachmentState color_blend_attachment(
-        false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
-        vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd,
-        vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+    std::array<vk::PipelineColorBlendAttachmentState, Maxwell::NumRenderTargets> cb_attachments;
+    // TODO(Rodrigo): Change this when multiple color attachments are supported
+    // cd.independent_blend ? cb_attachments.size() : 1
+    const std::size_t blend_attachment_count = 1;
+    for (std::size_t i = 0; i < blend_attachment_count; ++i) {
+        constexpr std::array<vk::ColorComponentFlagBits, 4> component_table = {
+            vk::ColorComponentFlagBits::eR, vk::ColorComponentFlagBits::eG,
+            vk::ColorComponentFlagBits::eB, vk::ColorComponentFlagBits::eA};
+        const auto& blend = cd.attachments[i];
+
+        vk::ColorComponentFlags color_components{};
+        for (std::size_t i = 0; i < component_table.size(); ++i) {
+            if (blend.components[i])
+                color_components |= component_table[i];
+        }
+
+        cb_attachments[i] = vk::PipelineColorBlendAttachmentState(
+            blend.enable, MaxwellToVK::BlendFactor(blend.src_rgb_func),
+            MaxwellToVK::BlendFactor(blend.dst_rgb_func),
+            MaxwellToVK::BlendEquation(blend.rgb_equation),
+            MaxwellToVK::BlendFactor(blend.src_a_func), MaxwellToVK::BlendFactor(blend.dst_a_func),
+            MaxwellToVK::BlendEquation(blend.a_equation), color_components);
+    }
     const vk::PipelineColorBlendStateCreateInfo color_blending_ci(
-        {}, false, vk::LogicOp::eCopy, 1, &color_blend_attachment, {0.f, 0.f, 0.f, 0.f});
+        {}, false, vk::LogicOp::eCopy, static_cast<u32>(blend_attachment_count),
+        cb_attachments.data(), cd.blend_constants);
 
     StaticVector<vk::PipelineShaderStageCreateInfo, Maxwell::MaxShaderStage> shader_stages;
     for (std::size_t stage = 0; stage < Maxwell::MaxShaderStage; ++stage) {
