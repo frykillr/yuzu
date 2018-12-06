@@ -9,7 +9,7 @@
 #include <boost/icl/interval.hpp>
 #include <vulkan/vulkan.hpp>
 #include "video_core/rasterizer_interface.h"
-#include "video_core/renderer_vulkan/vk_shader_cache.h"
+#include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 
 namespace Core::Frontend {
 class EmuWindow;
@@ -24,7 +24,7 @@ class VKRasterizerCache;
 class VKResourceManager;
 class VKMemoryManager;
 class VKDevice;
-class VKShaderCache;
+class VKPipelineCache;
 class VKBufferCache;
 class VKRenderPassCache;
 
@@ -89,7 +89,7 @@ private:
     const u64 uniform_buffer_alignment;
 
     std::unique_ptr<VKRasterizerCache> res_cache;
-    std::unique_ptr<VKShaderCache> shader_cache;
+    std::unique_ptr<VKPipelineCache> shader_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
     std::unique_ptr<VKRenderPassCache> renderpass_cache;
 

@@ -11,10 +11,10 @@
 #include "core/memory.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
-#include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 
 #pragma optimize("", off)
@@ -172,16 +172,16 @@ void CachedShader::CreateDescriptorPool() {
     descriptor_pool = std::make_unique<DescriptorPool>(device, pool_sizes, *descriptor_set_layout);
 }
 
-VKShaderCache::VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler)
+VKPipelineCache::VKPipelineCache(RasterizerVulkan& rasterizer, VKDevice& device_handler)
     : RasterizerCache{rasterizer},
       device_handler{device_handler}, device{device_handler.GetLogical()} {
 
     empty_set_layout = device.createDescriptorSetLayoutUnique({{}, 0, nullptr});
 }
 
-Pipeline VKShaderCache::GetPipeline(const PipelineParams& params,
-                                    const RenderPassParams& renderpass_params,
-                                    vk::RenderPass renderpass) {
+Pipeline VKPipelineCache::GetPipeline(const PipelineParams& params,
+                                      const RenderPassParams& renderpass_params,
+                                      vk::RenderPass renderpass) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
 
     Pipeline pipeline;
@@ -235,7 +235,7 @@ Pipeline VKShaderCache::GetPipeline(const PipelineParams& params,
     return pipeline;
 }
 
-void VKShaderCache::ObjectInvalidated(const Shader& shader) {
+void VKPipelineCache::ObjectInvalidated(const Shader& shader) {
     const VAddr invalidated_addr = shader->GetAddr();
     for (auto it = cache.begin(); it != cache.end();) {
         auto& entry = it->first;
@@ -256,8 +256,8 @@ void VKShaderCache::ObjectInvalidated(const Shader& shader) {
     }
 }
 
-vk::UniquePipelineLayout VKShaderCache::CreatePipelineLayout(const PipelineParams& params,
-                                                             const Pipeline& pipeline) const {
+vk::UniquePipelineLayout VKPipelineCache::CreatePipelineLayout(const PipelineParams& params,
+                                                               const Pipeline& pipeline) const {
     std::array<vk::DescriptorSetLayout, Maxwell::MaxShaderStage> set_layouts{};
     for (std::size_t i = 0; i < Maxwell::MaxShaderStage; ++i) {
         const auto& shader = pipeline.shaders[i];
@@ -268,8 +268,9 @@ vk::UniquePipelineLayout VKShaderCache::CreatePipelineLayout(const PipelineParam
         {{}, static_cast<u32>(set_layouts.size()), set_layouts.data(), 0, nullptr});
 }
 
-vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
-                                                 const Pipeline& pipeline, vk::RenderPass renderpass) const {
+vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
+                                                   const Pipeline& pipeline,
+                                                   vk::RenderPass renderpass) const {
     const auto& vertex_input = params.vertex_input;
     const auto& input_assembly = params.input_assembly;
     const auto& depth_stencil = params.depth_stencil;

@@ -212,9 +212,9 @@ private:
     std::unique_ptr<DescriptorPool> descriptor_pool;
 };
 
-class VKShaderCache final : public RasterizerCache<Shader> {
+class VKPipelineCache final : public RasterizerCache<Shader> {
 public:
-    explicit VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler);
+    explicit VKPipelineCache(RasterizerVulkan& rasterizer, VKDevice& device_handler);
 
     // Passing a renderpass object is not really needed (since it could be found from rp_params),
     // but this would require searching for the entry twice. Instead of doing that, pass the (draw)

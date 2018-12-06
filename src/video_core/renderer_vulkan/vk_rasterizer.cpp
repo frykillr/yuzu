@@ -16,12 +16,12 @@
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_device.h"
+#include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
 #include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
-#include "video_core/renderer_vulkan/vk_shader_cache.h"
 
 #pragma optimize("", off)
 
@@ -152,7 +152,7 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer, VKScreen
 
     res_cache = std::make_unique<VKRasterizerCache>(*this, device_handler, resource_manager,
                                                     memory_manager);
-    shader_cache = std::make_unique<VKShaderCache>(*this, device_handler);
+    shader_cache = std::make_unique<VKPipelineCache>(*this, device_handler);
     buffer_cache = std::make_unique<VKBufferCache>(*this, resource_manager, device_handler,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
     renderpass_cache = std::make_unique<VKRenderPassCache>(device_handler);
