@@ -12,6 +12,7 @@
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
@@ -178,7 +179,9 @@ VKShaderCache::VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_hand
     empty_set_layout = device.createDescriptorSetLayoutUnique({{}, 0, nullptr});
 }
 
-Pipeline VKShaderCache::GetPipeline(const PipelineParams& params) {
+Pipeline VKShaderCache::GetPipeline(const PipelineParams& params,
+                                    const RenderPassParams& renderpass_params,
+                                    vk::RenderPass renderpass) {
     const auto& gpu = Core::System::GetInstance().GPU().Maxwell3D();
 
     Pipeline pipeline;
@@ -215,23 +218,20 @@ Pipeline VKShaderCache::GetPipeline(const PipelineParams& params) {
         }
     }
 
-    const auto [pair, is_cache_miss] = cache.try_emplace({shaders, params});
+    const auto [pair, is_cache_miss] = cache.try_emplace({shaders, renderpass_params, params});
     auto& entry = pair->second;
 
     if (is_cache_miss) {
         entry = std::make_unique<CacheEntry>();
-        entry->renderpass = CreateRenderPass(params);
-        pipeline.renderpass = *entry->renderpass;
 
         entry->layout = CreatePipelineLayout(params, pipeline);
         pipeline.layout = *entry->layout;
 
-        entry->pipeline = CreatePipeline(params, pipeline);
+        entry->pipeline = CreatePipeline(params, pipeline, renderpass);
     }
 
     pipeline.handle = *entry->pipeline;
     pipeline.layout = *entry->layout;
-    pipeline.renderpass = *entry->renderpass;
     return pipeline;
 }
 
@@ -240,7 +240,7 @@ void VKShaderCache::ObjectInvalidated(const Shader& shader) {
     for (auto it = cache.begin(); it != cache.end();) {
         auto& entry = it->first;
         const bool has_addr = [&]() {
-            const auto [shaders, params] = entry;
+            const auto [shaders, renderpass_params, params] = entry;
             for (auto& shader_addr : shaders) {
                 if (shader_addr == invalidated_addr) {
                     return true;
@@ -269,7 +269,7 @@ vk::UniquePipelineLayout VKShaderCache::CreatePipelineLayout(const PipelineParam
 }
 
 vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
-                                                 const Pipeline& pipeline) const {
+                                                 const Pipeline& pipeline, vk::RenderPass renderpass) const {
     const auto& vertex_input = params.vertex_input;
     const auto& input_assembly = params.input_assembly;
     const auto& depth_stencil = params.depth_stencil;
@@ -340,65 +340,8 @@ vk::UniquePipeline VKShaderCache::CreatePipeline(const PipelineParams& params,
     const vk::GraphicsPipelineCreateInfo create_info(
         {}, static_cast<u32>(shader_stages.Size()), shader_stages.Data(), &vertex_input_ci,
         &input_assembly_ci, nullptr, &viewport_state_ci, &rasterizer_ci, &multisampling_ci,
-        &depth_stencil_ci, &color_blending_ci, nullptr, pipeline.layout, pipeline.renderpass, 0);
+        &depth_stencil_ci, &color_blending_ci, nullptr, pipeline.layout, renderpass, 0);
     return device.createGraphicsPipelineUnique(nullptr, create_info);
-}
-
-vk::UniqueRenderPass VKShaderCache::CreateRenderPass(const PipelineParams& params) const {
-    const auto& p = params.renderpass;
-    const bool preserve_contents = p.preserve_contents;
-    ASSERT(p.color_map.Size() == 1);
-
-    const vk::AttachmentLoadOp load_op =
-        preserve_contents ? vk::AttachmentLoadOp::eLoad : vk::AttachmentLoadOp::eClear;
-
-    StaticVector<vk::AttachmentDescription, Maxwell::NumRenderTargets + 1> descrs;
-    const auto& first_map = p.color_map[0];
-
-    descrs.Push(vk::AttachmentDescription(
-        {}, MaxwellToVK::SurfaceFormat(first_map.pixel_format, first_map.component_type),
-        vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
-        vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
-        vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal));
-
-    if (p.has_zeta) {
-        descrs.Push(vk::AttachmentDescription(
-            {}, MaxwellToVK::SurfaceFormat(p.zeta_pixel_format, p.zeta_component_type),
-            vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore, load_op,
-            vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
-            vk::ImageLayout::eDepthStencilAttachmentOptimal));
-    }
-
-    // TODO(Rodrigo): Support multiple attachments
-    const vk::AttachmentReference color_attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
-    const vk::AttachmentReference zeta_attachment_ref(
-        1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
-
-    const vk::SubpassDescription subpass_description(
-        {}, vk::PipelineBindPoint::eGraphics, 0, nullptr, 1, &color_attachment_ref, nullptr,
-        p.has_zeta ? &zeta_attachment_ref : nullptr, 0, nullptr);
-
-    vk::AccessFlags access{};
-    vk::PipelineStageFlags stage{};
-    if (preserve_contents)
-        access |= vk::AccessFlagBits::eColorAttachmentRead;
-    access |= vk::AccessFlagBits::eColorAttachmentWrite;
-    stage |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
-
-    if (p.has_zeta) {
-        if (preserve_contents)
-            access |= vk::AccessFlagBits::eDepthStencilAttachmentRead;
-        access |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
-        stage |= vk::PipelineStageFlagBits::eLateFragmentTests;
-    }
-
-    const vk::SubpassDependency subpass_dependency(VK_SUBPASS_EXTERNAL, 0, stage, stage, {}, access,
-                                                   {});
-
-    const vk::RenderPassCreateInfo create_info({}, static_cast<u32>(descrs.Size()), descrs.Data(),
-                                               1, &subpass_description, 1, &subpass_dependency);
-
-    return device.createRenderPassUnique(create_info);
 }
 
 } // namespace Vulkan

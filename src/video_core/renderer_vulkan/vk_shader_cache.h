@@ -25,6 +25,8 @@ class CachedShader;
 using Shader = std::shared_ptr<CachedShader>;
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
+struct RenderPassParams;
+
 struct PipelineParams {
     using ComponentType = VideoCore::Surface::ComponentType;
     using PixelFormat = VideoCore::Surface::PixelFormat;
@@ -38,7 +40,7 @@ struct PipelineParams {
             return std::tie(index, stride, divisor);
         }
 
-        auto operator<(const VertexBinding& rhs) const {
+        bool operator<(const VertexBinding& rhs) const {
             return Tie() < rhs.Tie();
         }
     };
@@ -75,20 +77,6 @@ struct PipelineParams {
         }
 
         bool operator<(const StencilFace& rhs) const {
-            return Tie() < rhs.Tie();
-        }
-    };
-
-    struct ColorAttachment {
-        u32 index = 0;
-        PixelFormat pixel_format = PixelFormat::Invalid;
-        ComponentType component_type = ComponentType::Invalid;
-
-        auto Tie() const {
-            return std::tie(index, pixel_format, component_type);
-        }
-
-        bool operator<(const ColorAttachment& rhs) const {
             return Tie() < rhs.Tie();
         }
     };
@@ -155,20 +143,6 @@ struct PipelineParams {
         }
     } color_blending;
 
-    struct {
-        StaticVector<ColorAttachment, Maxwell::NumRenderTargets> color_map = {};
-        // TODO(Rodrigo): Unify has_zeta into zeta_pixel_format and zeta_component_type.
-        PixelFormat zeta_pixel_format = PixelFormat::Invalid;
-        ComponentType zeta_component_type = ComponentType::Invalid;
-        bool has_zeta = false;
-        bool preserve_contents = false;
-
-        auto Tie() const {
-            return std::tie(color_map, zeta_pixel_format, zeta_component_type, has_zeta,
-                            preserve_contents);
-        }
-    } renderpass;
-
     bool operator<(const PipelineParams& rhs) const {
         return vertex_input.Tie() < rhs.vertex_input.Tie() ||
                input_assembly.Tie() < rhs.input_assembly.Tie() ||
@@ -176,15 +150,13 @@ struct PipelineParams {
                rasterizer.Tie() < rhs.rasterizer.Tie() ||
                multisampling.Tie() < rhs.multisampling.Tie() ||
                depth_stencil.Tie() < rhs.depth_stencil.Tie() ||
-               color_blending.Tie() < rhs.color_blending.Tie() ||
-               renderpass.Tie() < rhs.renderpass.Tie();
+               color_blending.Tie() < rhs.color_blending.Tie();
     }
 };
 
 struct Pipeline {
     vk::Pipeline handle;
     vk::PipelineLayout layout;
-    vk::RenderPass renderpass;
     std::array<Shader, Maxwell::MaxShaderStage> shaders;
 };
 
@@ -244,14 +216,18 @@ class VKShaderCache final : public RasterizerCache<Shader> {
 public:
     explicit VKShaderCache(RasterizerVulkan& rasterizer, VKDevice& device_handler);
 
-    Pipeline GetPipeline(const PipelineParams& params);
+    // Passing a renderpass object is not really needed (since it could be found from rp_params),
+    // but this would require searching for the entry twice. Instead of doing that, pass the (draw)
+    // renderpass that fulfills those params.
+    Pipeline GetPipeline(const PipelineParams& params, const RenderPassParams& renderpass_params,
+                         vk::RenderPass renderpass);
 
 protected:
     void ObjectInvalidated(const Shader& shader) override;
 
 private:
     using ShaderPipeline = std::array<VAddr, Maxwell::MaxShaderProgram>;
-    using CacheKey = std::tuple<ShaderPipeline, PipelineParams>;
+    using CacheKey = std::tuple<ShaderPipeline, RenderPassParams, PipelineParams>;
 
     struct CacheEntry {
         vk::UniquePipeline pipeline;
@@ -264,8 +240,8 @@ private:
 
     vk::UniquePipelineLayout CreatePipelineLayout(const PipelineParams& params,
                                                   const Pipeline& pipeline) const;
-    vk::UniquePipeline CreatePipeline(const PipelineParams& params, const Pipeline& pipeline) const;
-    vk::UniqueRenderPass CreateRenderPass(const PipelineParams& params) const;
+    vk::UniquePipeline CreatePipeline(const PipelineParams& params, const Pipeline& pipeline,
+                                      vk::RenderPass renderpass) const;
 
     std::map<CacheKey, std::unique_ptr<CacheEntry>> cache;
     vk::UniqueDescriptorSetLayout empty_set_layout;

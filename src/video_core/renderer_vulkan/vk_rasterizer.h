@@ -26,6 +26,7 @@ class VKMemoryManager;
 class VKDevice;
 class VKShaderCache;
 class VKBufferCache;
+class VKRenderPassCache;
 
 class PipelineState;
 struct FramebufferInfo;
@@ -90,6 +91,7 @@ private:
     std::unique_ptr<VKRasterizerCache> res_cache;
     std::unique_ptr<VKShaderCache> shader_cache;
     std::unique_ptr<VKBufferCache> buffer_cache;
+    std::unique_ptr<VKRenderPassCache> renderpass_cache;
 
     vk::UniqueSampler dummy_sampler;
 

@@ -18,6 +18,7 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_rasterizer_cache.h"
+#include "video_core/renderer_vulkan/vk_renderpass_cache.h"
 #include "video_core/renderer_vulkan/vk_resource_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_cache.h"
@@ -143,17 +144,18 @@ private:
 RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& renderer, VKScreenInfo& screen_info,
                                    VKDevice& device_handler, VKResourceManager& resource_manager,
                                    VKMemoryManager& memory_manager, VKScheduler& sched)
-    : VideoCore::RasterizerInterface(), render_window(renderer), screen_info(screen_info),
-      device_handler(device_handler), device(device_handler.GetLogical()),
-      graphics_queue(device_handler.GetGraphicsQueue()), resource_manager(resource_manager),
-      memory_manager(memory_manager), sched(sched),
-      uniform_buffer_alignment(device_handler.GetUniformBufferAlignment()) {
+    : VideoCore::RasterizerInterface(), render_window{renderer}, screen_info{screen_info},
+      device_handler{device_handler}, device{device_handler.GetLogical()},
+      graphics_queue{device_handler.GetGraphicsQueue()}, resource_manager{resource_manager},
+      memory_manager{memory_manager}, sched{sched},
+      uniform_buffer_alignment{device_handler.GetUniformBufferAlignment()} {
 
     res_cache = std::make_unique<VKRasterizerCache>(*this, device_handler, resource_manager,
                                                     memory_manager);
     shader_cache = std::make_unique<VKShaderCache>(*this, device_handler);
     buffer_cache = std::make_unique<VKBufferCache>(*this, resource_manager, device_handler,
                                                    memory_manager, sched, STREAM_BUFFER_SIZE);
+    renderpass_cache = std::make_unique<VKRenderPassCache>(device_handler);
 
     const vk::SamplerCreateInfo sampler_ci(
         {}, vk::Filter::eNearest, vk::Filter::eNearest, vk::SamplerMipmapMode::eNearest,
@@ -183,23 +185,25 @@ void RasterizerVulkan::DrawArrays() {
     params.input_assembly.topology = regs.draw.topology;
 
     // TODO(Rodrigo): Function this
-    params.renderpass.preserve_contents = true;
-    if (params.renderpass.has_zeta = regs.zeta_enable) {
-        params.renderpass.zeta_component_type =
+    RenderPassParams renderpass_params;
+    if (renderpass_params.has_zeta = regs.zeta_enable) {
+        renderpass_params.zeta_component_type =
             VideoCore::Surface::ComponentTypeFromDepthFormat(regs.zeta.format);
-        params.renderpass.zeta_pixel_format =
+        renderpass_params.zeta_pixel_format =
             VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
     }
-    {
-        // TODO(Rodrigo): Dehardcode this and put it in a function
-        PipelineParams::ColorAttachment attachment;
-        attachment.index = 0;
-        attachment.pixel_format =
-            VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
-        attachment.component_type =
-            VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
-        params.renderpass.color_map.Push(attachment);
-    }
+
+    // TODO(Rodrigo): Dehardcode this and put it in a function
+    RenderPassParams::ColorAttachment attachment;
+    attachment.index = 0;
+    attachment.pixel_format =
+        VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
+    attachment.component_type =
+        VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
+    renderpass_params.color_map.Push(attachment);
+
+    // TODO(Rodrigo): Function this
+    vk::RenderPass renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
 
     // TODO(Rodrigo): Function this
     params.viewport_state.width = static_cast<float>(regs.viewports[0].width);
@@ -219,7 +223,7 @@ void RasterizerVulkan::DrawArrays() {
         SetupIndexBuffer(state);
     }
 
-    Pipeline pipeline = shader_cache->GetPipeline(params);
+    Pipeline pipeline = shader_cache->GetPipeline(params, renderpass_params, renderpass);
 
     const vk::CommandBuffer cmdbuf = sched.BeginRecord();
 
@@ -235,7 +239,7 @@ void RasterizerVulkan::DrawArrays() {
         state.AssignDescriptorSet(static_cast<u32>(stage), descriptor_set);
     }
 
-    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, cmdbuf, pipeline.renderpass);
+    const FramebufferInfo fb_info = ConfigureFramebuffers(fence, cmdbuf, renderpass);
     const Surface& color_surface = fb_info.color_surfaces[0];
     const Surface& zeta_surface = fb_info.zeta_surface;
 
@@ -255,9 +259,8 @@ void RasterizerVulkan::DrawArrays() {
                                      vk::AccessFlagBits::eDepthStencilAttachmentWrite);
     }
 
-    const vk::RenderPassBeginInfo renderpass_bi(pipeline.renderpass, fb_info.framebuffer,
-                                                {{0, 0}, {fb_info.width, fb_info.height}}, 0,
-                                                nullptr);
+    const vk::RenderPassBeginInfo renderpass_bi(
+        renderpass, fb_info.framebuffer, {{0, 0}, {fb_info.width, fb_info.height}}, 0, nullptr);
     cmdbuf.beginRenderPass(renderpass_bi, vk::SubpassContents::eInline);
     {
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.handle);
@@ -375,7 +378,7 @@ static constexpr auto RangeFromInterval(Map& map, const Interval& interval) {
     return boost::make_iterator_range(map.equal_range(interval));
 }
 
-void RasterizerVulkan::UpdatePagesCachedCount(VAddr addr, u64 size, int delta) {
+void RasterizerVulkan::UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) {
     const u64 page_start{addr >> Memory::PAGE_BITS};
     const u64 page_end{(addr + size + Memory::PAGE_SIZE - 1) >> Memory::PAGE_BITS};
 

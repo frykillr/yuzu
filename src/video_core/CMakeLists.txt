@@ -84,6 +84,8 @@ if (Vulkan_FOUND)
         renderer_vulkan/vk_rasterizer.h
         renderer_vulkan/vk_rasterizer_cache.cpp
         renderer_vulkan/vk_rasterizer_cache.h
+        renderer_vulkan/vk_renderpass_cache.cpp
+        renderer_vulkan/vk_renderpass_cache.h
         renderer_vulkan/vk_resource_manager.cpp
         renderer_vulkan/vk_resource_manager.h
         renderer_vulkan/vk_scheduler.cpp
