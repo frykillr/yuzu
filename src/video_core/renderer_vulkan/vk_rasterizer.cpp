@@ -34,7 +34,8 @@ struct FramebufferInfo {
     vk::Framebuffer framebuffer;
     std::array<Surface, Maxwell::NumRenderTargets> color_surfaces;
     Surface zeta_surface;
-    u32 width, height;
+    u32 width;
+    u32 height;
 };
 
 struct FramebufferCacheKey {
@@ -176,38 +177,17 @@ void RasterizerVulkan::DrawArrays() {
     const bool is_indexed = accelerate_draw == AccelDraw::Indexed;
 
     VKFence& fence = sched.BeginPass(true);
+
     PipelineParams params;
     PipelineState state;
 
-    SyncDepthStencilState(params);
+    // Get renderpass parameters and get a draw renderpass from the cache
+    const RenderPassParams renderpass_params = GetRenderPassParams();
+    const vk::RenderPass renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
 
-    // TODO(Rodrigo): Function this
-    params.input_assembly.topology = regs.draw.topology;
-
-    // TODO(Rodrigo): Function this
-    RenderPassParams renderpass_params;
-    if (renderpass_params.has_zeta = regs.zeta_enable) {
-        renderpass_params.zeta_component_type =
-            VideoCore::Surface::ComponentTypeFromDepthFormat(regs.zeta.format);
-        renderpass_params.zeta_pixel_format =
-            VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
-    }
-
-    // TODO(Rodrigo): Dehardcode this and put it in a function
-    RenderPassParams::ColorAttachment attachment;
-    attachment.index = 0;
-    attachment.pixel_format =
-        VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
-    attachment.component_type =
-        VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
-    renderpass_params.color_map.Push(attachment);
-
-    // TODO(Rodrigo): Function this
-    vk::RenderPass renderpass = renderpass_cache->GetDrawRenderPass(renderpass_params);
-
-    // TODO(Rodrigo): Function this
-    params.viewport_state.width = static_cast<float>(regs.viewports[0].width);
-    params.viewport_state.height = static_cast<float>(regs.viewports[0].height);
+    SyncDepthStencil(params);
+    SyncInputAssembly(params);
+    SyncViewportState(params);
 
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
@@ -614,7 +594,30 @@ std::size_t RasterizerVulkan::CalculateIndexBufferSize() const {
            static_cast<std::size_t>(regs.index_array.FormatSizeInBytes());
 }
 
-void RasterizerVulkan::SyncDepthStencilState(PipelineParams& params) {
+RenderPassParams RasterizerVulkan::GetRenderPassParams() const {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    RenderPassParams renderpass_params;
+    if (renderpass_params.has_zeta = regs.zeta_enable) {
+        renderpass_params.zeta_component_type =
+            VideoCore::Surface::ComponentTypeFromDepthFormat(regs.zeta.format);
+        renderpass_params.zeta_pixel_format =
+            VideoCore::Surface::PixelFormatFromDepthFormat(regs.zeta.format);
+    }
+
+    // TODO(Rodrigo): Support multiple attachments
+    RenderPassParams::ColorAttachment attachment;
+    attachment.index = 0;
+    attachment.pixel_format =
+        VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[0].format);
+    attachment.component_type =
+        VideoCore::Surface::ComponentTypeFromRenderTarget(regs.rt[0].format);
+    renderpass_params.color_map.Push(attachment);
+
+    return renderpass_params;
+}
+
+void RasterizerVulkan::SyncDepthStencil(PipelineParams& params) {
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
 
     auto& ds = params.depth_stencil;
@@ -627,6 +630,22 @@ void RasterizerVulkan::SyncDepthStencilState(PipelineParams& params) {
     // ds.back_stencil = ;
     ds.depth_bounds_min = 0.f;
     ds.depth_bounds_max = 0.f;
+}
+
+void RasterizerVulkan::SyncInputAssembly(PipelineParams& params) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    auto& ia = params.input_assembly;
+    ia.topology = regs.draw.topology;
+    // ia.primitive_restart_enable = ;
+}
+
+void RasterizerVulkan::SyncViewportState(PipelineParams& params) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+
+    auto& vs = params.viewport_state;
+    vs.width = static_cast<float>(regs.viewports[0].width);
+    vs.height = static_cast<float>(regs.viewports[0].height);
 }
 
 } // namespace Vulkan

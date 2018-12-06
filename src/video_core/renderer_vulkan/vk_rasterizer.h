@@ -76,7 +76,11 @@ private:
 
     std::size_t CalculateIndexBufferSize() const;
 
-    void SyncDepthStencilState(PipelineParams& params);
+    RenderPassParams GetRenderPassParams() const;
+
+    void SyncDepthStencil(PipelineParams& params);
+    void SyncInputAssembly(PipelineParams& params);
+    void SyncViewportState(PipelineParams& params);
 
     Core::Frontend::EmuWindow& render_window;
     VKScreenInfo& screen_info;
