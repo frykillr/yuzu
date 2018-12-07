@@ -82,6 +82,7 @@ private:
     void SyncInputAssembly(PipelineParams& params);
     void SyncColorBlending(PipelineParams& params);
     void SyncViewportState(PipelineParams& params);
+    void SyncRasterizerState(PipelineParams& params);
 
     Core::Frontend::EmuWindow& render_window;
     VKScreenInfo& screen_info;

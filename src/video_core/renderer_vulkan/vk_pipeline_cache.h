@@ -127,8 +127,12 @@ struct PipelineParams {
     } viewport_state;
 
     struct {
+        bool cull_enable = false;
+        Maxwell::Cull::CullFace cull_face = Maxwell::Cull::CullFace::Back;
+        Maxwell::Cull::FrontFace front_face = Maxwell::Cull::FrontFace::CounterClockWise;
+
         auto Tie() const {
-            return std::tie();
+            return std::tie(cull_enable, cull_face, front_face);
         }
     } rasterizer;
 

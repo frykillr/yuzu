@@ -284,6 +284,7 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const auto& ds = params.depth_stencil;
     const auto& cd = params.color_blending;
     const auto& vs = params.viewport_state;
+    const auto& rs = params.rasterizer;
 
     StaticVector<vk::VertexInputBindingDescription, Maxwell::NumVertexArrays> vertex_bindings;
     for (const auto& binding : vi.bindings) {
@@ -306,14 +307,15 @@ vk::UniquePipeline VKPipelineCache::CreatePipeline(const PipelineParams& params,
     const vk::PipelineInputAssemblyStateCreateInfo input_assembly_ci({}, primitive_topology,
                                                                      ia.primitive_restart_enable);
 
-    const vk::Viewport viewport(0.f, 0.f, vs.width, vs.height, 0.f, 1.f);
+    const vk::Viewport viewport(0.0f, 0.0f, vs.width, vs.height, 0.0f, 1.0f);
     // TODO(Rodrigo): Read scissor values instead of using viewport
     const vk::Rect2D scissor({0, 0}, {static_cast<u32>(vs.width), static_cast<u32>(vs.height)});
     const vk::PipelineViewportStateCreateInfo viewport_state_ci({}, 1, &viewport, 1, &scissor);
 
     const vk::PipelineRasterizationStateCreateInfo rasterizer_ci(
-        {}, false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eNone,
-        vk::FrontFace::eCounterClockwise, false, 0.0f, 0.0f, 0.0f, 1.0f);
+        {}, false, false, vk::PolygonMode::eFill,
+        rs.cull_enable ? MaxwellToVK::CullFace(rs.cull_face) : vk::CullModeFlagBits::eNone,
+        MaxwellToVK::FrontFace(rs.front_face), false, 0.0f, 0.0f, 0.0f, 1.0f);
 
     const vk::PipelineMultisampleStateCreateInfo multisampling_ci(
         {}, vk::SampleCountFlagBits::e1, false, 0.0f, nullptr, false, false);

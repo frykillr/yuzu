@@ -189,6 +189,7 @@ void RasterizerVulkan::DrawArrays() {
     SyncInputAssembly(params);
     SyncColorBlending(params);
     SyncViewportState(params);
+    SyncRasterizerState(params);
 
     // Calculate buffer size.
     std::size_t buffer_size = CalculateVertexArraysSize();
@@ -712,6 +713,27 @@ void RasterizerVulkan::SyncViewportState(PipelineParams& params) {
 
     vs.width = static_cast<float>(regs.viewports[0].width);
     vs.height = static_cast<float>(regs.viewports[0].height);
+}
+
+void RasterizerVulkan::SyncRasterizerState(PipelineParams& params) {
+    const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
+    auto& rs = params.rasterizer;
+
+    rs.cull_enable = regs.cull.enabled != 0;
+    rs.cull_face = regs.cull.cull_face;
+
+    rs.front_face = regs.cull.front_face;
+
+    const bool flip_triangles{regs.screen_y_control.triangle_rast_flip == 0 ||
+                              regs.viewport_transform[0].scale_y < 0.0f};
+    // If the GPU is configured to flip the rasterizer triangles, then we need to flip the front and
+    // back.
+    if (flip_triangles) {
+        if (rs.front_face == Maxwell::Cull::FrontFace::CounterClockWise)
+            rs.front_face = Maxwell::Cull::FrontFace::ClockWise;
+        else if (rs.front_face == Maxwell::Cull::FrontFace::ClockWise)
+            rs.front_face = Maxwell::Cull::FrontFace::CounterClockWise;
+    }
 }
 
 } // namespace Vulkan

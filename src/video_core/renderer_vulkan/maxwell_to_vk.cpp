@@ -320,4 +320,28 @@ vk::BlendFactor BlendFactor(Maxwell::Blend::Factor factor) {
     return vk::BlendFactor::eZero;
 }
 
+vk::FrontFace FrontFace(Maxwell::Cull::FrontFace front_face) {
+    switch (front_face) {
+    case Maxwell::Cull::FrontFace::ClockWise:
+        return vk::FrontFace::eClockwise;
+    case Maxwell::Cull::FrontFace::CounterClockWise:
+        return vk::FrontFace::eCounterClockwise;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented front face={}", static_cast<u32>(front_face));
+    return vk::FrontFace::eCounterClockwise;
+}
+
+vk::CullModeFlags CullFace(Maxwell::Cull::CullFace cull_face) {
+    switch (cull_face) {
+    case Maxwell::Cull::CullFace::Front:
+        return vk::CullModeFlagBits::eFront;
+    case Maxwell::Cull::CullFace::Back:
+        return vk::CullModeFlagBits::eBack;
+    case Maxwell::Cull::CullFace::FrontAndBack:
+        return vk::CullModeFlagBits::eFrontAndBack;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented cull face={}", static_cast<u32>(cull_face));
+    return vk::CullModeFlagBits::eNone;
+}
+
 } // namespace Vulkan::MaxwellToVK
