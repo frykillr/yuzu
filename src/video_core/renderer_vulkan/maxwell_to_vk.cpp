@@ -11,87 +11,82 @@
 
 namespace Vulkan::MaxwellToVK {
 
-struct FormatTuple {
-    vk::Format format;
-    ComponentType component_type;
-};
-
 static constexpr std::array<FormatTuple, VideoCore::Surface::MaxPixelFormat> tex_format_tuples = {{
-    {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm}, // ABGR8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ABGR8UI
-    {vk::Format::eR5G6B5UnormPack16, ComponentType::UNorm},   // B5G6R5U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // A2B10G10R10U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // A1B5G5R5U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R8UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R11FG11FB10F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT1
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT23
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXT45
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN1
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN2UNORM
-    {vk::Format::eUndefined, ComponentType::Invalid},         // DXN2SNORM
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC7U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC6H_UF16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BC6H_SF16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_4X4
-    {vk::Format::eUndefined, ComponentType::Invalid},         // G8R8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // G8R8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // BGRA8
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R16I
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16I
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG16S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGB32F
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RGBA8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG8U
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG8S
-    {vk::Format::eUndefined, ComponentType::Invalid},         // RG32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // R32UI
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X8
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_8X5
-    {vk::Format::eUndefined, ComponentType::Invalid},         // ASTC_2D_5X4
+    {vk::Format::eA8B8G8R8UnormPack32, ComponentType::UNorm, true}, // ABGR8U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ABGR8S
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ABGR8UI
+    {vk::Format::eR5G6B5UnormPack16, ComponentType::UNorm, false},  // B5G6R5U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // A2B10G10R10U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // A1B5G5R5U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R8U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R8UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA16UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R11FG11FB10F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA32UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT1
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT23
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXT45
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN1
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN2UNORM
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // DXN2SNORM
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // BC7U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // BC6H_UF16
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // BC6H_SF16
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ASTC_2D_4X4
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // G8R8U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // G8R8S
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // BGRA8
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA32F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG32F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R32F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R16F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R16U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R16S
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R16UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R16I
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG16
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG16F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG16UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG16I
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG16S
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGB32F
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RGBA8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG8U
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG8S
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // RG32UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // R32UI
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ASTC_2D_8X8
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ASTC_2D_8X5
+    {vk::Format::eUndefined, ComponentType::Invalid, false},        // ASTC_2D_5X4
 
     // Compressed sRGB formats
-    {vk::Format::eUndefined, ComponentType::Invalid}, // BGRA8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT1_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT23_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // DXT45_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // BC7U_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_4X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X8_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_8X5_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X4_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_5X5_SRGB
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_10X8
-    {vk::Format::eUndefined, ComponentType::Invalid}, // ASTC_2D_10X8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // BGRA8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT1_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT23_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // DXT45_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // BC7U_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_4X4_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_8X8_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_8X5_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X4_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X5
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_5X5_SRGB
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_10X8
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // ASTC_2D_10X8_SRGB
 
     // Depth formats
-    {vk::Format::eD32Sfloat, ComponentType::Float},   // Z32F
-    {vk::Format::eUndefined, ComponentType::Invalid}, // Z16
+    {vk::Format::eD32Sfloat, ComponentType::Float, true},    // Z32F
+    {vk::Format::eUndefined, ComponentType::Invalid, false}, // Z16
 
     // DepthStencil formats
-    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm}, // Z24S8
-    {vk::Format::eUndefined, ComponentType::Invalid},    // S8Z24
-    {vk::Format::eUndefined, ComponentType::Invalid},    // Z32FS8
+    {vk::Format::eD24UnormS8Uint, ComponentType::UNorm, true}, // Z24S8
+    {vk::Format::eUndefined, ComponentType::Invalid, false},   // S8Z24
+    {vk::Format::eUndefined, ComponentType::Invalid, false},   // Z32FS8
 }};
 
-vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type) {
+FormatTuple SurfaceFormat(PixelFormat pixel_format, ComponentType component_type) {
     ASSERT(static_cast<std::size_t>(pixel_format) < tex_format_tuples.size());
 
     const auto& format = tex_format_tuples[static_cast<u32>(pixel_format)];
@@ -100,7 +95,7 @@ vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type)
                          static_cast<u32>(pixel_format), static_cast<u32>(component_type));
     ASSERT_MSG(component_type == format.component_type, "Component type mismatch");
 
-    return format.format;
+    return format;
 }
 
 vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderStage stage) {

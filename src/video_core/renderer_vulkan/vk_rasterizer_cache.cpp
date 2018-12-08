@@ -217,21 +217,20 @@ vk::ImageCreateInfo SurfaceParams::CreateInfo() const {
     constexpr auto sample_count = vk::SampleCountFlagBits::e1;
     constexpr auto tiling = vk::ImageTiling::eOptimal;
 
+    const auto tuple = MaxwellToVK::SurfaceFormat(pixel_format, component_type);
+
     const bool is_zeta = pixel_format >= PixelFormat::MaxColorFormat &&
                          pixel_format < PixelFormat::MaxDepthStencilFormat;
-    const auto attachment_usage = is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
-                                          : vk::ImageUsageFlagBits::eColorAttachment;
     auto usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
                  vk::ImageUsageFlagBits::eTransferSrc;
-    if (MaxwellToVK::SurfaceFormat(pixel_format, component_type) !=
-        vk::Format::eB5G6R5UnormPack16) {
-
-        usage |= attachment_usage;
+    if (tuple.attachable) {
+        usage |= is_zeta ? vk::ImageUsageFlagBits::eDepthStencilAttachment
+                         : vk::ImageUsageFlagBits::eColorAttachment;
     }
 
     return {{},
             SurfaceTargetToImageVK(target),
-            MaxwellToVK::SurfaceFormat(pixel_format, component_type),
+            tuple.format,
             {width, height, depth},
             mipmaps,
             array_layers,

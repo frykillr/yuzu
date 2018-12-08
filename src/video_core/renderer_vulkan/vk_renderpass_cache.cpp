@@ -56,14 +56,15 @@ vk::UniqueRenderPass VKRenderPassCache::CreateRenderPass(const RenderPassParams&
     const auto& first_map = params.color_map[0];
 
     descriptors.Push(vk::AttachmentDescription(
-        {}, MaxwellToVK::SurfaceFormat(first_map.pixel_format, first_map.component_type),
+        {}, MaxwellToVK::SurfaceFormat(first_map.pixel_format, first_map.component_type).format,
         vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore,
         vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
         vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::eColorAttachmentOptimal));
 
     if (has_zeta) {
         descriptors.Push(vk::AttachmentDescription(
-            {}, MaxwellToVK::SurfaceFormat(params.zeta_pixel_format, params.zeta_component_type),
+            {},
+            MaxwellToVK::SurfaceFormat(params.zeta_pixel_format, params.zeta_component_type).format,
             vk::SampleCountFlagBits::e1, load_op, vk::AttachmentStoreOp::eStore, load_op,
             vk::AttachmentStoreOp::eStore, vk::ImageLayout::eDepthStencilAttachmentOptimal,
             vk::ImageLayout::eDepthStencilAttachmentOptimal));

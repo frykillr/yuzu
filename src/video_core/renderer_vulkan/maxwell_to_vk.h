@@ -15,7 +15,13 @@ using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 using PixelFormat = VideoCore::Surface::PixelFormat;
 using ComponentType = VideoCore::Surface::ComponentType;
 
-vk::Format SurfaceFormat(PixelFormat pixel_format, ComponentType component_type);
+struct FormatTuple {
+    vk::Format format;
+    ComponentType component_type;
+    bool attachable;
+};
+
+FormatTuple SurfaceFormat(PixelFormat pixel_format, ComponentType component_type);
 
 vk::ShaderStageFlagBits ShaderStage(Maxwell::ShaderStage stage);
 
