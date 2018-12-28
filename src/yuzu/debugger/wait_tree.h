@@ -17,8 +17,8 @@
 class EmuThread;
 
 namespace Kernel {
+class ReadableEvent;
 class WaitObject;
-class Event;
 class Thread;
 class Timer;
 } // namespace Kernel
@@ -52,7 +52,7 @@ private:
 class WaitTreeText : public WaitTreeItem {
     Q_OBJECT
 public:
-    explicit WaitTreeText(const QString& text);
+    explicit WaitTreeText(QString text);
     ~WaitTreeText() override;
 
     QString GetText() const override;
@@ -144,7 +144,7 @@ public:
 class WaitTreeEvent : public WaitTreeWaitObject {
     Q_OBJECT
 public:
-    explicit WaitTreeEvent(const Kernel::Event& object);
+    explicit WaitTreeEvent(const Kernel::ReadableEvent& object);
     ~WaitTreeEvent() override;
 
     std::vector<std::unique_ptr<WaitTreeItem>> GetChildren() const override;

@@ -26,6 +26,7 @@ enum ThreadPriority : u32 {
     THREADPRIO_USERLAND_MAX = 24, ///< Highest thread priority for userland apps
     THREADPRIO_DEFAULT = 44,      ///< Default thread priority for userland apps
     THREADPRIO_LOWEST = 63,       ///< Lowest thread priority
+    THREADPRIO_COUNT = 64,        ///< Total number of possible thread priorities.
 };
 
 enum ThreadProcessorId : s32 {
@@ -44,6 +45,7 @@ enum ThreadProcessorId : s32 {
 enum class ThreadStatus {
     Running,      ///< Currently running
     Ready,        ///< Ready to run
+    Paused,       ///< Paused by SetThreadActivity or debug
     WaitHLEEvent, ///< Waiting for hle event to finish
     WaitSleep,    ///< Waiting due to a SleepThread SVC
     WaitIPC,      ///< Waiting for the reply from an IPC request
@@ -58,6 +60,11 @@ enum class ThreadStatus {
 enum class ThreadWakeupReason {
     Signal, // The thread was woken up by WakeupAllWaitingThreads due to an object signal.
     Timeout // The thread was woken up due to a wait timeout.
+};
+
+enum class ThreadActivity : u32 {
+    Normal = 0,
+    Paused = 1,
 };
 
 class Thread final : public WaitObject {
@@ -150,7 +157,7 @@ public:
      * Gets the thread's thread ID
      * @return The thread's ID
      */
-    u32 GetThreadID() const {
+    u64 GetThreadID() const {
         return thread_id;
     }
 
@@ -370,6 +377,12 @@ public:
         return affinity_mask;
     }
 
+    ThreadActivity GetActivity() const {
+        return activity;
+    }
+
+    void SetActivity(ThreadActivity value);
+
 private:
     explicit Thread(KernelCore& kernel);
     ~Thread() override;
@@ -378,7 +391,7 @@ private:
 
     Core::ARM_Interface::ThreadContext context{};
 
-    u32 thread_id = 0;
+    u64 thread_id = 0;
 
     ThreadStatus status = ThreadStatus::Dormant;
 
@@ -438,6 +451,8 @@ private:
     TLSMemoryPtr tls_memory = std::make_shared<TLSMemory>();
 
     std::string name;
+
+    ThreadActivity activity = ThreadActivity::Normal;
 };
 
 /**

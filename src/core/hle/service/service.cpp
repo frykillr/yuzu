@@ -70,10 +70,6 @@
 #include "core/hle/service/vi/vi.h"
 #include "core/hle/service/wlan/wlan.h"
 
-using Kernel::ClientPort;
-using Kernel::ServerPort;
-using Kernel::SharedPtr;
-
 namespace Service {
 
 /**
@@ -101,33 +97,33 @@ ServiceFrameworkBase::ServiceFrameworkBase(const char* service_name, u32 max_ses
 ServiceFrameworkBase::~ServiceFrameworkBase() = default;
 
 void ServiceFrameworkBase::InstallAsService(SM::ServiceManager& service_manager) {
-    ASSERT(port == nullptr);
-    port = service_manager.RegisterService(service_name, max_sessions).Unwrap();
+    ASSERT(!port_installed);
+
+    auto port = service_manager.RegisterService(service_name, max_sessions).Unwrap();
     port->SetHleHandler(shared_from_this());
+    port_installed = true;
 }
 
 void ServiceFrameworkBase::InstallAsNamedPort() {
-    ASSERT(port == nullptr);
+    ASSERT(!port_installed);
 
     auto& kernel = Core::System::GetInstance().Kernel();
-    SharedPtr<ServerPort> server_port;
-    SharedPtr<ClientPort> client_port;
-    std::tie(server_port, client_port) =
-        ServerPort::CreatePortPair(kernel, max_sessions, service_name);
+    auto [server_port, client_port] =
+        Kernel::ServerPort::CreatePortPair(kernel, max_sessions, service_name);
     server_port->SetHleHandler(shared_from_this());
     kernel.AddNamedPort(service_name, std::move(client_port));
+    port_installed = true;
 }
 
 Kernel::SharedPtr<Kernel::ClientPort> ServiceFrameworkBase::CreatePort() {
-    ASSERT(port == nullptr);
+    ASSERT(!port_installed);
 
     auto& kernel = Core::System::GetInstance().Kernel();
-    Kernel::SharedPtr<Kernel::ServerPort> server_port;
-    Kernel::SharedPtr<Kernel::ClientPort> client_port;
-    std::tie(server_port, client_port) =
+    auto [server_port, client_port] =
         Kernel::ServerPort::CreatePortPair(kernel, max_sessions, service_name);
-    port = MakeResult<Kernel::SharedPtr<Kernel::ServerPort>>(std::move(server_port)).Unwrap();
+    auto port = MakeResult(std::move(server_port)).Unwrap();
     port->SetHleHandler(shared_from_this());
+    port_installed = true;
     return client_port;
 }
 
@@ -152,8 +148,7 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(Kernel::HLERequestContext
     }
     buf.push_back('}');
 
-    LOG_ERROR(Service, "unknown / unimplemented {}", fmt::to_string(buf));
-    UNIMPLEMENTED();
+    UNIMPLEMENTED_MSG("Unknown / unimplemented {}", fmt::to_string(buf));
 }
 
 void ServiceFrameworkBase::InvokeRequest(Kernel::HLERequestContext& ctx) {

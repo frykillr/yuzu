@@ -79,6 +79,26 @@ struct DrawParameters {
     }
 };
 
+struct FramebufferCacheKey {
+    bool is_single_buffer = false;
+    bool stencil_enable = false;
+
+    std::array<GLenum, Maxwell::NumRenderTargets> color_attachments{};
+    std::array<GLuint, Tegra::Engines::Maxwell3D::Regs::NumRenderTargets> colors{};
+    u32 colors_count = 0;
+
+    GLuint zeta = 0;
+
+    auto Tie() const {
+        return std::tie(is_single_buffer, stencil_enable, color_attachments, colors, colors_count,
+                        zeta);
+    }
+
+    bool operator<(const FramebufferCacheKey& rhs) const {
+        return Tie() < rhs.Tie();
+    }
+};
+
 RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& window, ScreenInfo& info)
     : res_cache{*this}, shader_cache{*this}, emu_window{window}, screen_info{info},
       buffer_cache(*this, STREAM_BUFFER_SIZE) {
@@ -88,23 +108,7 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& window, ScreenInfo
         state.texture_units[i].sampler = texture_samplers[i].sampler.handle;
     }
 
-    GLint ext_num;
-    glGetIntegerv(GL_NUM_EXTENSIONS, &ext_num);
-    for (GLint i = 0; i < ext_num; i++) {
-        const std::string_view extension{
-            reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i))};
-
-        if (extension == "GL_ARB_direct_state_access") {
-            has_ARB_direct_state_access = true;
-        } else if (extension == "GL_ARB_multi_bind") {
-            has_ARB_multi_bind = true;
-        }
-    }
-
     OpenGLState::ApplyDefaultState();
-
-    // Create render framebuffer
-    framebuffer.Create();
 
     shader_program_manager = std::make_unique<GLShader::ProgramManager>();
     state.draw.shader_program = 0;
@@ -295,6 +299,7 @@ void RasterizerOpenGL::SetupShaders(GLenum primitive_mode) {
     // shaders. The constbuffer bindpoint starts after the shader stage configuration bind points.
     u32 current_constbuffer_bindpoint = Tegra::Engines::Maxwell3D::Regs::MaxShaderStage;
     u32 current_texture_bindpoint = 0;
+    std::array<bool, Maxwell::NumClipDistances> clip_distances{};
 
     for (std::size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
         const auto& shader_config = gpu.regs.shader_config[index];
@@ -355,11 +360,59 @@ void RasterizerOpenGL::SetupShaders(GLenum primitive_mode) {
         current_texture_bindpoint = SetupTextures(static_cast<Maxwell::ShaderStage>(stage), shader,
                                                   primitive_mode, current_texture_bindpoint);
 
+        // Workaround for Intel drivers.
+        // When a clip distance is enabled but not set in the shader it crops parts of the screen
+        // (sometimes it's half the screen, sometimes three quarters). To avoid this, enable the
+        // clip distances only when it's written by a shader stage.
+        for (std::size_t i = 0; i < Maxwell::NumClipDistances; ++i) {
+            clip_distances[i] |= shader->GetShaderEntries().clip_distances[i];
+        }
+
         // When VertexA is enabled, we have dual vertex shaders
         if (program == Maxwell::ShaderProgram::VertexA) {
             // VertexB was combined with VertexA, so we skip the VertexB iteration
             index++;
         }
+    }
+
+    SyncClipEnabled(clip_distances);
+}
+
+void RasterizerOpenGL::SetupCachedFramebuffer(const FramebufferCacheKey& fbkey,
+                                              OpenGLState& current_state) {
+    const auto [entry, is_cache_miss] = framebuffer_cache.try_emplace(fbkey);
+    auto& framebuffer = entry->second;
+
+    if (is_cache_miss)
+        framebuffer.Create();
+
+    current_state.draw.draw_framebuffer = framebuffer.handle;
+    current_state.ApplyFramebufferState();
+
+    if (!is_cache_miss)
+        return;
+
+    if (fbkey.is_single_buffer) {
+        if (fbkey.color_attachments[0] != GL_NONE) {
+            glFramebufferTexture(GL_DRAW_FRAMEBUFFER, fbkey.color_attachments[0], fbkey.colors[0],
+                                 0);
+        }
+        glDrawBuffer(fbkey.color_attachments[0]);
+    } else {
+        for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
+            if (fbkey.colors[index]) {
+                glFramebufferTexture(GL_DRAW_FRAMEBUFFER,
+                                     GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index),
+                                     fbkey.colors[index], 0);
+            }
+        }
+        glDrawBuffers(fbkey.colors_count, fbkey.color_attachments.data());
+    }
+
+    if (fbkey.zeta) {
+        GLenum zeta_attachment =
+            fbkey.stencil_enable ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+        glFramebufferTexture(GL_DRAW_FRAMEBUFFER, zeta_attachment, fbkey.zeta, 0);
     }
 }
 
@@ -443,12 +496,12 @@ void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool us
     // TODO(bunnei): Figure out how the below register works. According to envytools, this should be
     // used to enable multiple render targets. However, it is left unset on all games that I have
     // tested.
-    //ASSERT_MSG(regs.rt_separate_frag_data == 0, "Unimplemented");
+    ASSERT_MSG(regs.rt_separate_frag_data == 0, "Unimplemented");
 
     // Bind the framebuffer surfaces
-    current_state.draw.draw_framebuffer = framebuffer.handle;
-    current_state.ApplyFramebufferState();
     current_state.framebuffer_srgb.enabled = regs.framebuffer_srgb != 0;
+
+    FramebufferCacheKey fbkey;
 
     if (using_color_fb) {
         if (single_color_target) {
@@ -465,14 +518,12 @@ void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool us
                 state.framebuffer_srgb.enabled |= color_surface->GetSurfaceParams().srgb_conversion;
             }
 
-            glFramebufferTexture2D(
-                GL_DRAW_FRAMEBUFFER,
-                GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(*single_color_target), GL_TEXTURE_2D,
-                color_surface != nullptr ? color_surface->Texture().handle : 0, 0);
-            glDrawBuffer(GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(*single_color_target));
+            fbkey.is_single_buffer = true;
+            fbkey.color_attachments[0] =
+                GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(*single_color_target);
+            fbkey.colors[0] = color_surface != nullptr ? color_surface->Texture().handle : 0;
         } else {
             // Multiple color attachments are enabled
-            std::array<GLenum, Maxwell::NumRenderTargets> buffers;
             for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
                 Surface color_surface = res_cache.GetColorBufferSurface(index, preserve_contents);
 
@@ -487,22 +538,17 @@ void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool us
                         color_surface->GetSurfaceParams().srgb_conversion;
                 }
 
-                buffers[index] = GL_COLOR_ATTACHMENT0 + regs.rt_control.GetMap(index);
-                glFramebufferTexture2D(
-                    GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index),
-                    GL_TEXTURE_2D, color_surface != nullptr ? color_surface->Texture().handle : 0,
-                    0);
+                fbkey.color_attachments[index] =
+                    GL_COLOR_ATTACHMENT0 + regs.rt_control.GetMap(index);
+                fbkey.colors[index] =
+                    color_surface != nullptr ? color_surface->Texture().handle : 0;
             }
-            glDrawBuffers(regs.rt_control.count, buffers.data());
+            fbkey.is_single_buffer = false;
+            fbkey.colors_count = regs.rt_control.count;
         }
     } else {
-        // No color attachments are enabled - zero out all of them
-        for (std::size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
-            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER,
-                                   GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(index), GL_TEXTURE_2D,
-                                   0, 0);
-        }
-        glDrawBuffer(GL_NONE);
+        // No color attachments are enabled - leave them as zero
+        fbkey.is_single_buffer = true;
     }
 
     if (depth_surface) {
@@ -510,22 +556,12 @@ void RasterizerOpenGL::ConfigureFramebuffers(OpenGLState& current_state, bool us
         // the shader doesn't actually write to it.
         depth_surface->MarkAsModified(true, res_cache);
 
-        if (regs.stencil_enable) {
-            // Attach both depth and stencil
-            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
-                                   depth_surface->Texture().handle, 0);
-        } else {
-            // Attach depth
-            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
-                                   depth_surface->Texture().handle, 0);
-            // Clear stencil attachment
-            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
-        }
-    } else {
-        // Clear both depth and stencil attachment
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0,
-                               0);
+        fbkey.zeta = depth_surface->Texture().handle;
+        fbkey.stencil_enable = regs.stencil_enable;
     }
+
+    SetupCachedFramebuffer(fbkey, current_state);
+
     SyncViewport(current_state);
 }
 
@@ -642,7 +678,6 @@ void RasterizerOpenGL::DrawArrays() {
     SyncCullMode();
     SyncPrimitiveRestart();
     SyncScissorTest(state);
-    SyncClipEnabled();
     // Alpha Testing is synced on shaders.
     SyncTransformFeedback();
     SyncPointState();
@@ -887,7 +922,7 @@ u32 RasterizerOpenGL::SetupConstBuffers(Maxwell::ShaderStage stage, Shader& shad
     const auto& gpu = Core::System::GetInstance().GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
     const auto& shader_stage = maxwell3d.state.shader_stages[static_cast<std::size_t>(stage)];
-    const auto& entries = shader->GetShaderEntries().const_buffer_entries;
+    const auto& entries = shader->GetShaderEntries().const_buffers;
 
     constexpr u64 max_binds = Tegra::Engines::Maxwell3D::Regs::MaxConstBuffers;
     std::array<GLuint, max_binds> bind_buffers;
@@ -955,7 +990,7 @@ u32 RasterizerOpenGL::SetupTextures(Maxwell::ShaderStage stage, Shader& shader,
     MICROPROFILE_SCOPE(OpenGL_Texture);
     const auto& gpu = Core::System::GetInstance().GPU();
     const auto& maxwell3d = gpu.Maxwell3D();
-    const auto& entries = shader->GetShaderEntries().texture_samplers;
+    const auto& entries = shader->GetShaderEntries().samplers;
 
     ASSERT_MSG(current_unit + entries.size() <= std::size(state.texture_units),
                "Exceeded the number of active textures.");
@@ -1019,20 +1054,23 @@ void RasterizerOpenGL::SyncViewport(OpenGLState& current_state) {
     state.depth_clamp.near_plane = regs.view_volume_clip_control.depth_clamp_near != 0;
 }
 
-void RasterizerOpenGL::SyncClipEnabled() {
+void RasterizerOpenGL::SyncClipEnabled(
+    const std::array<bool, Maxwell::Regs::NumClipDistances>& clip_mask) {
+
     const auto& regs = Core::System::GetInstance().GPU().Maxwell3D().regs;
-    state.clip_distance[0] = regs.clip_distance_enabled.c0 != 0;
-    state.clip_distance[1] = regs.clip_distance_enabled.c1 != 0;
-    state.clip_distance[2] = regs.clip_distance_enabled.c2 != 0;
-    state.clip_distance[3] = regs.clip_distance_enabled.c3 != 0;
-    state.clip_distance[4] = regs.clip_distance_enabled.c4 != 0;
-    state.clip_distance[5] = regs.clip_distance_enabled.c5 != 0;
-    state.clip_distance[6] = regs.clip_distance_enabled.c6 != 0;
-    state.clip_distance[7] = regs.clip_distance_enabled.c7 != 0;
+    const std::array<bool, Maxwell::Regs::NumClipDistances> reg_state{
+        regs.clip_distance_enabled.c0 != 0, regs.clip_distance_enabled.c1 != 0,
+        regs.clip_distance_enabled.c2 != 0, regs.clip_distance_enabled.c3 != 0,
+        regs.clip_distance_enabled.c4 != 0, regs.clip_distance_enabled.c5 != 0,
+        regs.clip_distance_enabled.c6 != 0, regs.clip_distance_enabled.c7 != 0};
+
+    for (std::size_t i = 0; i < Maxwell::Regs::NumClipDistances; ++i) {
+        state.clip_distance[i] = reg_state[i] && clip_mask[i];
+    }
 }
 
 void RasterizerOpenGL::SyncClipCoef() {
-    UNREACHABLE();
+    UNIMPLEMENTED();
 }
 
 void RasterizerOpenGL::SyncCullMode() {

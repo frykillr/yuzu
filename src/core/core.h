@@ -9,7 +9,9 @@
 #include <string>
 
 #include "common/common_types.h"
+#include "core/file_sys/vfs_types.h"
 #include "core/hle/kernel/object.h"
+#include "frontend/applets/profile_select.h"
 
 namespace Core::Frontend {
 class EmuWindow;
@@ -54,6 +56,9 @@ class PerfStats;
 class TelemetrySession;
 
 struct PerfStatsResults;
+
+FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
+                                         const std::string& path);
 
 class System {
 public:
@@ -236,6 +241,10 @@ public:
     void SetFilesystem(std::shared_ptr<FileSys::VfsFilesystem> vfs);
 
     std::shared_ptr<FileSys::VfsFilesystem> GetFilesystem() const;
+
+    void SetProfileSelector(std::unique_ptr<Core::Frontend::ProfileSelectApplet> applet);
+
+    const Core::Frontend::ProfileSelectApplet& GetProfileSelector() const;
 
     void SetSoftwareKeyboard(std::unique_ptr<Core::Frontend::SoftwareKeyboardApplet> applet);
 

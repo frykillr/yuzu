@@ -42,6 +42,7 @@ public:
         static constexpr std::size_t NumVertexArrays = 32;
         static constexpr std::size_t NumVertexAttributes = 32;
         static constexpr std::size_t NumTextureSamplers = 32;
+        static constexpr std::size_t NumClipDistances = 8;
         static constexpr std::size_t MaxShaderProgram = 6;
         static constexpr std::size_t MaxShaderStage = 5;
         // Maximum number of const buffers per shader stage.
@@ -163,6 +164,7 @@ public:
                     return 3;
                 default:
                     UNREACHABLE();
+                    return 1;
                 }
             }
 
@@ -870,6 +872,7 @@ public:
                             return 4;
                         }
                         UNREACHABLE();
+                        return 1;
                     }
 
                     GPUVAddr StartAddress() const {

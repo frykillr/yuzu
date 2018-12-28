@@ -12,7 +12,9 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/frontend/input.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/readable_event.h"
+#include "core/hle/kernel/writable_event.h"
 #include "core/hle/service/hid/controllers/npad.h"
 #include "core/settings.h"
 
@@ -167,8 +169,8 @@ void Controller_NPad::InitNewlyAddedControler(std::size_t controller_idx) {
 
 void Controller_NPad::OnInit() {
     auto& kernel = Core::System::GetInstance().Kernel();
-    styleset_changed_event =
-        Kernel::Event::Create(kernel, Kernel::ResetType::OneShot, "npad:NpadStyleSetChanged");
+    styleset_changed_event = Kernel::WritableEvent::CreateEventPair(
+        kernel, Kernel::ResetType::OneShot, "npad:NpadStyleSetChanged");
 
     if (!IsControllerActivated()) {
         return;
@@ -337,52 +339,6 @@ void Controller_NPad::OnUpdate(u8* data, std::size_t data_len) {
             npad.pokeball_states.npad[npad.pokeball_states.common.last_entry_index];
         auto& libnx_entry = npad.libnx.npad[npad.libnx.common.last_entry_index];
 
-        if (hold_type == NpadHoldType::Horizontal) {
-            ControllerPadState state{};
-            AnalogPosition temp_lstick_entry{};
-            AnalogPosition temp_rstick_entry{};
-            if (controller_type == NPadControllerType::JoyLeft) {
-                state.d_down.Assign(pad_state.pad_states.d_left.Value());
-                state.d_left.Assign(pad_state.pad_states.d_up.Value());
-                state.d_right.Assign(pad_state.pad_states.d_down.Value());
-                state.d_up.Assign(pad_state.pad_states.d_right.Value());
-                state.l.Assign(pad_state.pad_states.l.Value() |
-                               pad_state.pad_states.left_sl.Value());
-                state.r.Assign(pad_state.pad_states.r.Value() |
-                               pad_state.pad_states.left_sr.Value());
-
-                state.zl.Assign(pad_state.pad_states.zl.Value());
-                state.plus.Assign(pad_state.pad_states.minus.Value());
-
-                temp_lstick_entry = pad_state.l_stick;
-                temp_rstick_entry = pad_state.r_stick;
-                std::swap(temp_lstick_entry.x, temp_lstick_entry.y);
-                std::swap(temp_rstick_entry.x, temp_rstick_entry.y);
-                temp_lstick_entry.y *= -1;
-            } else if (controller_type == NPadControllerType::JoyRight) {
-                state.x.Assign(pad_state.pad_states.a.Value());
-                state.a.Assign(pad_state.pad_states.b.Value());
-                state.b.Assign(pad_state.pad_states.y.Value());
-                state.y.Assign(pad_state.pad_states.b.Value());
-
-                state.l.Assign(pad_state.pad_states.l.Value() |
-                               pad_state.pad_states.right_sl.Value());
-                state.r.Assign(pad_state.pad_states.r.Value() |
-                               pad_state.pad_states.right_sr.Value());
-                state.zr.Assign(pad_state.pad_states.zr.Value());
-                state.plus.Assign(pad_state.pad_states.plus.Value());
-
-                temp_lstick_entry = pad_state.l_stick;
-                temp_rstick_entry = pad_state.r_stick;
-                std::swap(temp_lstick_entry.x, temp_lstick_entry.y);
-                std::swap(temp_rstick_entry.x, temp_rstick_entry.y);
-                temp_rstick_entry.x *= -1;
-            }
-            pad_state.pad_states.raw = state.raw;
-            pad_state.l_stick = temp_lstick_entry;
-            pad_state.r_stick = temp_rstick_entry;
-        }
-
         libnx_entry.connection_status.raw = 0;
 
         switch (controller_type) {
@@ -494,7 +450,7 @@ void Controller_NPad::SetSupportedNPadIdTypes(u8* data, std::size_t length) {
             had_controller_update = true;
         }
         if (had_controller_update) {
-            styleset_changed_event->Signal();
+            styleset_changed_event.writable->Signal();
         }
     }
 }
@@ -509,7 +465,7 @@ std::size_t Controller_NPad::GetSupportedNPadIdTypesSize() const {
 }
 
 void Controller_NPad::SetHoldType(NpadHoldType joy_hold_type) {
-    styleset_changed_event->Signal();
+    styleset_changed_event.writable->Signal();
     hold_type = joy_hold_type;
 }
 
@@ -518,12 +474,15 @@ Controller_NPad::NpadHoldType Controller_NPad::GetHoldType() const {
 }
 
 void Controller_NPad::SetNpadMode(u32 npad_id, NPadAssignments assignment_mode) {
-    ASSERT(npad_id < shared_memory_entries.size());
-    shared_memory_entries[npad_id].pad_assignment = assignment_mode;
+    const std::size_t npad_index = NPadIdToIndex(npad_id);
+    ASSERT(npad_index < shared_memory_entries.size());
+    shared_memory_entries[npad_index].pad_assignment = assignment_mode;
 }
 
 void Controller_NPad::VibrateController(const std::vector<u32>& controller_ids,
                                         const std::vector<Vibration>& vibrations) {
+    LOG_WARNING(Service_HID, "(STUBBED) called");
+
     if (!can_controllers_vibrate) {
         return;
     }
@@ -533,15 +492,14 @@ void Controller_NPad::VibrateController(const std::vector<u32>& controller_ids,
             // TODO(ogniK): Vibrate the physical controller
         }
     }
-    LOG_WARNING(Service_HID, "(STUBBED) called");
     last_processed_vibration = vibrations.back();
 }
 
-Kernel::SharedPtr<Kernel::Event> Controller_NPad::GetStyleSetChangedEvent() const {
+Kernel::SharedPtr<Kernel::ReadableEvent> Controller_NPad::GetStyleSetChangedEvent() const {
     // TODO(ogniK): Figure out the best time to signal this event. This event seems that it should
     // be signalled at least once, and signaled after a new controller is connected?
-    styleset_changed_event->Signal();
-    return styleset_changed_event;
+    styleset_changed_event.writable->Signal();
+    return styleset_changed_event.readable;
 }
 
 Controller_NPad::Vibration Controller_NPad::GetLastVibration() const {

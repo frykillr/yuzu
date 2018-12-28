@@ -12,7 +12,12 @@
 #include <vector>
 
 #include "common/common_types.h"
+#include "core/file_sys/control_metadata.h"
 #include "core/file_sys/vfs.h"
+
+namespace FileSys {
+class NACP;
+} // namespace FileSys
 
 namespace Kernel {
 struct AddressMapping;
@@ -66,6 +71,7 @@ enum class ResultStatus : u16 {
     ErrorBadACIHeader,
     ErrorBadFileAccessControl,
     ErrorBadFileAccessHeader,
+    ErrorBadKernelCapabilityDescriptors,
     ErrorBadPFSHeader,
     ErrorIncorrectPFSFileSize,
     ErrorBadNCAHeader,
@@ -88,6 +94,7 @@ enum class ResultStatus : u16 {
     ErrorNullFile,
     ErrorMissingNPDM,
     Error32BitISA,
+    ErrorUnableToParseKernelMetadata,
     ErrorNoRomFS,
     ErrorIncorrectELFFileSize,
     ErrorLoadingNRO,
@@ -131,7 +138,7 @@ public:
      * Returns the type of this file
      * @return FileType corresponding to the loaded file
      */
-    virtual FileType GetFileType() = 0;
+    virtual FileType GetFileType() const = 0;
 
     /**
      * Load the application and return the created Process instance
@@ -240,6 +247,15 @@ public:
      * @return ResultStatus result of function
      */
     virtual ResultStatus ReadTitle(std::string& title) {
+        return ResultStatus::ErrorNotImplemented;
+    }
+
+    /**
+     * Get the control data (CNMT) of the application
+     * @param control Reference to store the application control data into
+     * @return ResultStatus result of function
+     */
+    virtual ResultStatus ReadControlData(FileSys::NACP& control) {
         return ResultStatus::ErrorNotImplemented;
     }
 

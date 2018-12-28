@@ -40,6 +40,7 @@ namespace OpenGL {
 
 struct ScreenInfo;
 struct DrawParameters;
+struct FramebufferCacheKey;
 
 class RasterizerOpenGL : public VideoCore::RasterizerInterface {
 public:
@@ -59,20 +60,6 @@ public:
                            u32 pixel_stride) override;
     bool AccelerateDrawBatch(bool is_indexed) override;
     void UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) override;
-
-    /// OpenGL shader generated for a given Maxwell register state
-    struct MaxwellShader {
-        /// OpenGL shader resource
-        OGLProgram shader;
-    };
-
-    struct VertexShader {
-        OGLShader shader;
-    };
-
-    struct FragmentShader {
-        OGLShader shader;
-    };
 
     /// Maximum supported size that a constbuffer can have in bytes.
     static constexpr std::size_t MaxConstbufferSize = 0x10000;
@@ -142,7 +129,8 @@ private:
     void SyncViewport(OpenGLState& current_state);
 
     /// Syncs the clip enabled status to match the guest state
-    void SyncClipEnabled();
+    void SyncClipEnabled(
+        const std::array<bool, Tegra::Engines::Maxwell3D::Regs::NumClipDistances>& clip_mask);
 
     /// Syncs the clip coefficients to match the guest state
     void SyncClipCoef();
@@ -193,9 +181,6 @@ private:
     /// but are needed for correct emulation
     void CheckExtensions();
 
-    bool has_ARB_direct_state_access = false;
-    bool has_ARB_multi_bind = false;
-
     OpenGLState state;
 
     RasterizerCacheOpenGL res_cache;
@@ -211,11 +196,12 @@ private:
              OGLVertexArray>
         vertex_array_cache;
 
+    std::map<FramebufferCacheKey, OGLFramebuffer> framebuffer_cache;
+
     std::array<SamplerInfo, Tegra::Engines::Maxwell3D::Regs::NumTextureSamplers> texture_samplers;
 
     static constexpr std::size_t STREAM_BUFFER_SIZE = 128 * 1024 * 1024;
     OGLBufferCache buffer_cache;
-    OGLFramebuffer framebuffer;
     PrimitiveAssembler primitive_assembler{buffer_cache};
     GLint uniform_buffer_alignment;
 
@@ -229,6 +215,8 @@ private:
     DrawParameters SetupDraw();
 
     void SetupShaders(GLenum primitive_mode);
+
+    void SetupCachedFramebuffer(const FramebufferCacheKey& fbkey, OpenGLState& current_state);
 
     enum class AccelDraw { Disabled, Arrays, Indexed };
     AccelDraw accelerate_draw = AccelDraw::Disabled;

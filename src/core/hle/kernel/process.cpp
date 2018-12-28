@@ -9,6 +9,7 @@
 #include "common/logging/log.h"
 #include "core/core.h"
 #include "core/file_sys/program_metadata.h"
+#include "core/hle/kernel/errors.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/process.h"
 #include "core/hle/kernel/resource_limit.h"
@@ -27,13 +28,11 @@ SharedPtr<Process> Process::Create(KernelCore& kernel, std::string&& name) {
     SharedPtr<Process> process(new Process(kernel));
 
     process->name = std::move(name);
-    process->flags.raw = 0;
-    process->flags.memory_region.Assign(MemoryRegion::APPLICATION);
     process->resource_limit = kernel.GetSystemResourceLimit();
     process->status = ProcessStatus::Created;
     process->program_id = 0;
     process->process_id = kernel.CreateNewProcessID();
-    process->svc_access_mask.set();
+    process->capabilities.InitializeForMetadatalessProcess();
 
     std::mt19937 rng(Settings::values.rng_seed.value_or(0));
     std::uniform_int_distribution<u64> distribution;
@@ -44,82 +43,34 @@ SharedPtr<Process> Process::Create(KernelCore& kernel, std::string&& name) {
     return process;
 }
 
-void Process::LoadFromMetadata(const FileSys::ProgramMetadata& metadata) {
-    program_id = metadata.GetTitleID();
-    is_64bit_process = metadata.Is64BitProgram();
-    vm_manager.Reset(metadata.GetAddressSpaceType());
+SharedPtr<ResourceLimit> Process::GetResourceLimit() const {
+    return resource_limit;
 }
 
-void Process::ParseKernelCaps(const u32* kernel_caps, std::size_t len) {
-    for (std::size_t i = 0; i < len; ++i) {
-        u32 descriptor = kernel_caps[i];
-        u32 type = descriptor >> 20;
-
-        if (descriptor == 0xFFFFFFFF) {
-            // Unused descriptor entry
-            continue;
-        } else if ((type & 0xF00) == 0xE00) { // 0x0FFF
-            // Allowed interrupts list
-            LOG_WARNING(Loader, "ExHeader allowed interrupts list ignored");
-        } else if ((type & 0xF80) == 0xF00) { // 0x07FF
-            // Allowed syscalls mask
-            unsigned int index = ((descriptor >> 24) & 7) * 24;
-            u32 bits = descriptor & 0xFFFFFF;
-
-            while (bits && index < svc_access_mask.size()) {
-                svc_access_mask.set(index, bits & 1);
-                ++index;
-                bits >>= 1;
-            }
-        } else if ((type & 0xFF0) == 0xFE0) { // 0x00FF
-            // Handle table size
-            handle_table_size = descriptor & 0x3FF;
-        } else if ((type & 0xFF8) == 0xFF0) { // 0x007F
-            // Misc. flags
-            flags.raw = descriptor & 0xFFFF;
-        } else if ((type & 0xFFE) == 0xFF8) { // 0x001F
-            // Mapped memory range
-            if (i + 1 >= len || ((kernel_caps[i + 1] >> 20) & 0xFFE) != 0xFF8) {
-                LOG_WARNING(Loader, "Incomplete exheader memory range descriptor ignored.");
-                continue;
-            }
-            u32 end_desc = kernel_caps[i + 1];
-            ++i; // Skip over the second descriptor on the next iteration
-
-            AddressMapping mapping;
-            mapping.address = descriptor << 12;
-            VAddr end_address = end_desc << 12;
-
-            if (mapping.address < end_address) {
-                mapping.size = end_address - mapping.address;
-            } else {
-                mapping.size = 0;
-            }
-
-            mapping.read_only = (descriptor & (1 << 20)) != 0;
-            mapping.unk_flag = (end_desc & (1 << 20)) != 0;
-
-            address_mappings.push_back(mapping);
-        } else if ((type & 0xFFF) == 0xFFE) { // 0x000F
-            // Mapped memory page
-            AddressMapping mapping;
-            mapping.address = descriptor << 12;
-            mapping.size = Memory::PAGE_SIZE;
-            mapping.read_only = false;
-            mapping.unk_flag = false;
-
-            address_mappings.push_back(mapping);
-        } else if ((type & 0xFE0) == 0xFC0) { // 0x01FF
-            // Kernel version
-            kernel_version = descriptor & 0xFFFF;
-
-            int minor = kernel_version & 0xFF;
-            int major = (kernel_version >> 8) & 0xFF;
-            LOG_INFO(Loader, "ExHeader kernel version: {}.{}", major, minor);
-        } else {
-            LOG_ERROR(Loader, "Unhandled kernel caps descriptor: 0x{:08X}", descriptor);
-        }
+ResultCode Process::ClearSignalState() {
+    if (status == ProcessStatus::Exited) {
+        LOG_ERROR(Kernel, "called on a terminated process instance.");
+        return ERR_INVALID_STATE;
     }
+
+    if (!is_signaled) {
+        LOG_ERROR(Kernel, "called on a process instance that isn't signaled.");
+        return ERR_INVALID_STATE;
+    }
+
+    is_signaled = false;
+    return RESULT_SUCCESS;
+}
+
+ResultCode Process::LoadFromMetadata(const FileSys::ProgramMetadata& metadata) {
+    program_id = metadata.GetTitleID();
+    ideal_processor = metadata.GetMainThreadCore();
+    is_64bit_process = metadata.Is64BitProgram();
+
+    vm_manager.Reset(metadata.GetAddressSpaceType());
+
+    const auto& caps = metadata.GetKernelCapabilities();
+    return capabilities.InitializeForUserProcess(caps.data(), caps.size(), vm_manager);
 }
 
 void Process::Run(VAddr entry_point, s32 main_thread_priority, u32 stack_size) {
@@ -129,17 +80,17 @@ void Process::Run(VAddr entry_point, s32 main_thread_priority, u32 stack_size) {
     vm_manager
         .MapMemoryBlock(vm_manager.GetTLSIORegionEndAddress() - stack_size,
                         std::make_shared<std::vector<u8>>(stack_size, 0), 0, stack_size,
-                        MemoryState::Mapped)
+                        MemoryState::Stack)
         .Unwrap();
 
     vm_manager.LogLayout();
-    status = ProcessStatus::Running;
+    ChangeStatus(ProcessStatus::Running);
 
     Kernel::SetupMainThread(kernel, entry_point, main_thread_priority, *this);
 }
 
 void Process::PrepareForTermination() {
-    status = ProcessStatus::Exited;
+    ChangeStatus(ProcessStatus::Exiting);
 
     const auto stop_threads = [this](const std::vector<SharedPtr<Thread>>& thread_list) {
         for (auto& thread : thread_list) {
@@ -163,6 +114,8 @@ void Process::PrepareForTermination() {
     stop_threads(system.Scheduler(1).GetThreadList());
     stop_threads(system.Scheduler(2).GetThreadList());
     stop_threads(system.Scheduler(3).GetThreadList());
+
+    ChangeStatus(ProcessStatus::Exited);
 }
 
 /**
@@ -261,7 +214,25 @@ ResultCode Process::UnmapMemory(VAddr dst_addr, VAddr /*src_addr*/, u64 size) {
     return vm_manager.UnmapRange(dst_addr, size);
 }
 
-Kernel::Process::Process(KernelCore& kernel) : Object{kernel} {}
+Kernel::Process::Process(KernelCore& kernel) : WaitObject{kernel} {}
 Kernel::Process::~Process() {}
+
+void Process::Acquire(Thread* thread) {
+    ASSERT_MSG(!ShouldWait(thread), "Object unavailable!");
+}
+
+bool Process::ShouldWait(Thread* thread) const {
+    return !is_signaled;
+}
+
+void Process::ChangeStatus(ProcessStatus new_status) {
+    if (status == new_status) {
+        return;
+    }
+
+    status = new_status;
+    is_signaled = true;
+    WakeupAllWaitingThreads();
+}
 
 } // namespace Kernel

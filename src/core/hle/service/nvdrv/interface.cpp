@@ -6,7 +6,9 @@
 #include "common/logging/log.h"
 #include "core/core.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/kernel.h"
+#include "core/hle/kernel/readable_event.h"
+#include "core/hle/kernel/writable_event.h"
 #include "core/hle/service/nvdrv/interface.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 
@@ -55,6 +57,7 @@ void NVDRV::Close(Kernel::HLERequestContext& ctx) {
 
 void NVDRV::Initialize(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_NVDRV, "(STUBBED) called");
+
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0);
@@ -68,15 +71,15 @@ void NVDRV::QueryEvent(Kernel::HLERequestContext& ctx) {
 
     IPC::ResponseBuilder rb{ctx, 3, 1};
     rb.Push(RESULT_SUCCESS);
-    rb.PushCopyObjects(query_event);
+    rb.PushCopyObjects(query_event.readable);
     rb.Push<u32>(0);
 }
 
 void NVDRV::SetClientPID(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
     pid = rp.Pop<u64>();
-
     LOG_WARNING(Service_NVDRV, "(STUBBED) called, pid=0x{:X}", pid);
+
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0);
@@ -84,12 +87,14 @@ void NVDRV::SetClientPID(Kernel::HLERequestContext& ctx) {
 
 void NVDRV::FinishInitialize(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_NVDRV, "(STUBBED) called");
+
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(RESULT_SUCCESS);
 }
 
 void NVDRV::GetStatus(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_NVDRV, "(STUBBED) called");
+
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(RESULT_SUCCESS);
 }
@@ -98,6 +103,7 @@ void NVDRV::DumpGraphicsMemoryInfo(Kernel::HLERequestContext& ctx) {
     // According to SwitchBrew, this has no inputs and no outputs, so effectively does nothing on
     // retail hardware.
     LOG_DEBUG(Service_NVDRV, "called");
+
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(RESULT_SUCCESS);
 }
@@ -123,7 +129,8 @@ NVDRV::NVDRV(std::shared_ptr<Module> nvdrv, const char* name)
     RegisterHandlers(functions);
 
     auto& kernel = Core::System::GetInstance().Kernel();
-    query_event = Kernel::Event::Create(kernel, Kernel::ResetType::OneShot, "NVDRV::query_event");
+    query_event = Kernel::WritableEvent::CreateEventPair(kernel, Kernel::ResetType::OneShot,
+                                                         "NVDRV::query_event");
 }
 
 NVDRV::~NVDRV() = default;

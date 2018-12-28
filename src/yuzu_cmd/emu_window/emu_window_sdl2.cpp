@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <SDL.h>
+#include "common/logging/log.h"
 #include "emu_window_sdl2.h"
 #include "input_common/keyboard.h"
 #include "input_common/main.h"

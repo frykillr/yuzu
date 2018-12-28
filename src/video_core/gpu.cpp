@@ -102,6 +102,7 @@ u32 RenderTargetBytesPerPixel(RenderTargetFormat format) {
         return 1;
     default:
         UNIMPLEMENTED_MSG("Unimplemented render target format {}", static_cast<u32>(format));
+        return 1;
     }
 }
 
@@ -119,6 +120,7 @@ u32 DepthFormatBytesPerPixel(DepthFormat format) {
         return 2;
     default:
         UNIMPLEMENTED_MSG("Unimplemented Depth format {}", static_cast<u32>(format));
+        return 1;
     }
 }
 
@@ -128,10 +130,8 @@ enum class BufferMethods {
 };
 
 void GPU::CallMethod(const MethodCall& method_call) {
-    LOG_TRACE(HW_GPU,
-              "Processing method {:08X} on subchannel {} value "
-              "{:08X} remaining params {}",
-              MethCall.method, MethCall.subchannel, value, remaining_params);
+    LOG_TRACE(HW_GPU, "Processing method {:08X} on subchannel {}", method_call.method,
+              method_call.subchannel);
 
     ASSERT(method_call.subchannel < bound_engines.size());
 
@@ -140,6 +140,12 @@ void GPU::CallMethod(const MethodCall& method_call) {
         LOG_DEBUG(HW_GPU, "Binding subchannel {} to engine {}", method_call.subchannel,
                   method_call.argument);
         bound_engines[method_call.subchannel] = static_cast<EngineID>(method_call.argument);
+        return;
+    }
+
+    if (method_call.method < static_cast<u32>(BufferMethods::CountBufferMethods)) {
+        // TODO(Subv): Research and implement these methods.
+        LOG_ERROR(HW_GPU, "Special buffer methods other than Bind are not implemented");
         return;
     }
 

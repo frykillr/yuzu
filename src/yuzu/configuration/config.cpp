@@ -4,6 +4,7 @@
 
 #include <QSettings>
 #include "common/file_util.h"
+#include "configure_input_simple.h"
 #include "core/hle/service/acc/profile_manager.h"
 #include "core/hle/service/hid/controllers/npad.h"
 #include "input_common/main.h"
@@ -206,60 +207,57 @@ const std::array<int, Settings::NativeKeyboard::NumKeyboardMods> Config::default
 
 void Config::ReadPlayerValues() {
     for (std::size_t p = 0; p < Settings::values.players.size(); ++p) {
-        Settings::values.players[p].connected =
-            qt_config->value(QString("player_%1_connected").arg(p), false).toBool();
+        auto& player = Settings::values.players[p];
 
-        Settings::values.players[p].type = static_cast<Settings::ControllerType>(
+        player.connected = qt_config->value(QString("player_%1_connected").arg(p), false).toBool();
+
+        player.type = static_cast<Settings::ControllerType>(
             qt_config
                 ->value(QString("player_%1_type").arg(p),
                         static_cast<u8>(Settings::ControllerType::DualJoycon))
                 .toUInt());
 
-        Settings::values.players[p].body_color_left =
-            qt_config
-                ->value(QString("player_%1_body_color_left").arg(p),
-                        Settings::JOYCON_BODY_NEON_BLUE)
-                .toUInt();
-        Settings::values.players[p].body_color_right =
-            qt_config
-                ->value(QString("player_%1_body_color_right").arg(p),
-                        Settings::JOYCON_BODY_NEON_RED)
-                .toUInt();
-        Settings::values.players[p].button_color_left =
-            qt_config
-                ->value(QString("player_%1_button_color_left").arg(p),
-                        Settings::JOYCON_BUTTONS_NEON_BLUE)
-                .toUInt();
-        Settings::values.players[p].button_color_right =
-            qt_config
-                ->value(QString("player_%1_button_color_right").arg(p),
-                        Settings::JOYCON_BUTTONS_NEON_RED)
-                .toUInt();
+        player.body_color_left = qt_config
+                                     ->value(QString("player_%1_body_color_left").arg(p),
+                                             Settings::JOYCON_BODY_NEON_BLUE)
+                                     .toUInt();
+        player.body_color_right = qt_config
+                                      ->value(QString("player_%1_body_color_right").arg(p),
+                                              Settings::JOYCON_BODY_NEON_RED)
+                                      .toUInt();
+        player.button_color_left = qt_config
+                                       ->value(QString("player_%1_button_color_left").arg(p),
+                                               Settings::JOYCON_BUTTONS_NEON_BLUE)
+                                       .toUInt();
+        player.button_color_right = qt_config
+                                        ->value(QString("player_%1_button_color_right").arg(p),
+                                                Settings::JOYCON_BUTTONS_NEON_RED)
+                                        .toUInt();
 
         for (int i = 0; i < Settings::NativeButton::NumButtons; ++i) {
             std::string default_param = InputCommon::GenerateKeyboardParam(default_buttons[i]);
-            Settings::values.players[p].buttons[i] =
+            player.buttons[i] =
                 qt_config
                     ->value(QString("player_%1_").arg(p) + Settings::NativeButton::mapping[i],
                             QString::fromStdString(default_param))
                     .toString()
                     .toStdString();
-            if (Settings::values.players[p].buttons[i].empty())
-                Settings::values.players[p].buttons[i] = default_param;
+            if (player.buttons[i].empty())
+                player.buttons[i] = default_param;
         }
 
         for (int i = 0; i < Settings::NativeAnalog::NumAnalogs; ++i) {
             std::string default_param = InputCommon::GenerateAnalogParamFromKeys(
                 default_analogs[i][0], default_analogs[i][1], default_analogs[i][2],
                 default_analogs[i][3], default_analogs[i][4], 0.5f);
-            Settings::values.players[p].analogs[i] =
+            player.analogs[i] =
                 qt_config
                     ->value(QString("player_%1_").arg(p) + Settings::NativeAnalog::mapping[i],
                             QString::fromStdString(default_param))
                     .toString()
                     .toStdString();
-            if (Settings::values.players[p].analogs[i].empty())
-                Settings::values.players[p].analogs[i] = default_param;
+            if (player.analogs[i].empty())
+                player.analogs[i] = default_param;
         }
     }
 
@@ -340,6 +338,13 @@ void Config::ReadTouchscreenValues() {
     Settings::values.touchscreen.diameter_y =
         qt_config->value("touchscreen_diameter_y", 15).toUInt();
     qt_config->endGroup();
+}
+
+void Config::ApplyDefaultProfileIfInputInvalid() {
+    if (!std::any_of(Settings::values.players.begin(), Settings::values.players.end(),
+                     [](const Settings::PlayerInput& in) { return in.connected; })) {
+        ApplyInputProfileConfiguration(UISettings::values.profile_index);
+    }
 }
 
 void Config::ReadValues() {
@@ -444,10 +449,27 @@ void Config::ReadValues() {
     Settings::values.yuzu_token = qt_config->value("yuzu_token").toString().toStdString();
     qt_config->endGroup();
 
+    const auto size = qt_config->beginReadArray("DisabledAddOns");
+    for (int i = 0; i < size; ++i) {
+        qt_config->setArrayIndex(i);
+        const auto title_id = qt_config->value("title_id", 0).toULongLong();
+        std::vector<std::string> out;
+        const auto d_size = qt_config->beginReadArray("disabled");
+        for (int j = 0; j < d_size; ++j) {
+            qt_config->setArrayIndex(j);
+            out.push_back(qt_config->value("d", "").toString().toStdString());
+        }
+        qt_config->endArray();
+        Settings::values.disabled_addons.insert_or_assign(title_id, out);
+    }
+    qt_config->endArray();
+
     qt_config->beginGroup("UI");
     UISettings::values.theme = qt_config->value("theme", UISettings::themes[0].second).toString();
     UISettings::values.enable_discord_presence =
         qt_config->value("enable_discord_presence", true).toBool();
+    UISettings::values.screenshot_resolution_factor =
+        static_cast<u16>(qt_config->value("screenshot_resolution_factor", 0).toUInt());
 
     qt_config->beginGroup("UIGameList");
     UISettings::values.show_unknown = qt_config->value("show_unknown", true).toBool();
@@ -506,35 +528,36 @@ void Config::ReadValues() {
     UISettings::values.first_start = qt_config->value("firstStart", true).toBool();
     UISettings::values.callout_flags = qt_config->value("calloutFlags", 0).toUInt();
     UISettings::values.show_console = qt_config->value("showConsole", false).toBool();
+    UISettings::values.profile_index = qt_config->value("profileIndex", 0).toUInt();
+
+    ApplyDefaultProfileIfInputInvalid();
 
     qt_config->endGroup();
 }
 
 void Config::SavePlayerValues() {
-    for (int p = 0; p < Settings::values.players.size(); ++p) {
-        qt_config->setValue(QString("player_%1_connected").arg(p),
-                            Settings::values.players[p].connected);
-        qt_config->setValue(QString("player_%1_type").arg(p),
-                            static_cast<u8>(Settings::values.players[p].type));
+    for (std::size_t p = 0; p < Settings::values.players.size(); ++p) {
+        const auto& player = Settings::values.players[p];
 
-        qt_config->setValue(QString("player_%1_body_color_left").arg(p),
-                            Settings::values.players[p].body_color_left);
-        qt_config->setValue(QString("player_%1_body_color_right").arg(p),
-                            Settings::values.players[p].body_color_right);
+        qt_config->setValue(QString("player_%1_connected").arg(p), player.connected);
+        qt_config->setValue(QString("player_%1_type").arg(p), static_cast<u8>(player.type));
+
+        qt_config->setValue(QString("player_%1_body_color_left").arg(p), player.body_color_left);
+        qt_config->setValue(QString("player_%1_body_color_right").arg(p), player.body_color_right);
         qt_config->setValue(QString("player_%1_button_color_left").arg(p),
-                            Settings::values.players[p].button_color_left);
+                            player.button_color_left);
         qt_config->setValue(QString("player_%1_button_color_right").arg(p),
-                            Settings::values.players[p].button_color_right);
+                            player.button_color_right);
 
         for (int i = 0; i < Settings::NativeButton::NumButtons; ++i) {
             qt_config->setValue(QString("player_%1_").arg(p) +
                                     QString::fromStdString(Settings::NativeButton::mapping[i]),
-                                QString::fromStdString(Settings::values.players[p].buttons[i]));
+                                QString::fromStdString(player.buttons[i]));
         }
         for (int i = 0; i < Settings::NativeAnalog::NumAnalogs; ++i) {
             qt_config->setValue(QString("player_%1_").arg(p) +
                                     QString::fromStdString(Settings::NativeAnalog::mapping[i]),
-                                QString::fromStdString(Settings::values.players[p].analogs[i]));
+                                QString::fromStdString(player.analogs[i]));
         }
     }
 }
@@ -650,9 +673,26 @@ void Config::SaveValues() {
     qt_config->setValue("yuzu_token", QString::fromStdString(Settings::values.yuzu_token));
     qt_config->endGroup();
 
+    qt_config->beginWriteArray("DisabledAddOns");
+    int i = 0;
+    for (const auto& elem : Settings::values.disabled_addons) {
+        qt_config->setArrayIndex(i);
+        qt_config->setValue("title_id", QVariant::fromValue<u64>(elem.first));
+        qt_config->beginWriteArray("disabled");
+        for (std::size_t j = 0; j < elem.second.size(); ++j) {
+            qt_config->setArrayIndex(j);
+            qt_config->setValue("d", QString::fromStdString(elem.second[j]));
+        }
+        qt_config->endArray();
+        ++i;
+    }
+    qt_config->endArray();
+
     qt_config->beginGroup("UI");
     qt_config->setValue("theme", UISettings::values.theme);
     qt_config->setValue("enable_discord_presence", UISettings::values.enable_discord_presence);
+    qt_config->setValue("screenshot_resolution_factor",
+                        UISettings::values.screenshot_resolution_factor);
 
     qt_config->beginGroup("UIGameList");
     qt_config->setValue("show_unknown", UISettings::values.show_unknown);
@@ -674,6 +714,7 @@ void Config::SaveValues() {
     qt_config->beginGroup("Paths");
     qt_config->setValue("romsPath", UISettings::values.roms_path);
     qt_config->setValue("symbolsPath", UISettings::values.symbols_path);
+    qt_config->setValue("screenshotPath", UISettings::values.screenshot_path);
     qt_config->setValue("gameListRootDir", UISettings::values.gamedir);
     qt_config->setValue("gameListDeepScan", UISettings::values.gamedir_deepscan);
     qt_config->setValue("recentFiles", UISettings::values.recent_files);
@@ -695,6 +736,7 @@ void Config::SaveValues() {
     qt_config->setValue("firstStart", UISettings::values.first_start);
     qt_config->setValue("calloutFlags", UISettings::values.callout_flags);
     qt_config->setValue("showConsole", UISettings::values.show_console);
+    qt_config->setValue("profileIndex", UISettings::values.profile_index);
     qt_config->endGroup();
 }
 

@@ -8,7 +8,9 @@
 #include <thread>
 
 // VFS includes must be before glad as they will conflict with Windows file api, which uses defines.
+#include "applets/profile_select.h"
 #include "applets/software_keyboard.h"
+#include "configuration/configure_per_general.h"
 #include "core/file_sys/vfs.h"
 #include "core/file_sys/vfs_real.h"
 #include "core/hle/service/acc/profile_manager.h"
@@ -207,6 +209,28 @@ GMainWindow::~GMainWindow() {
         delete render_window;
 }
 
+void GMainWindow::ProfileSelectorSelectProfile() {
+    QtProfileSelectionDialog dialog(this);
+    dialog.setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint | Qt::WindowTitleHint |
+                          Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint);
+    dialog.setWindowModality(Qt::WindowModal);
+    dialog.exec();
+
+    if (!dialog.GetStatus()) {
+        emit ProfileSelectorFinishedSelection(std::nullopt);
+        return;
+    }
+
+    Service::Account::ProfileManager manager;
+    const auto uuid = manager.GetUser(dialog.GetIndex());
+    if (!uuid.has_value()) {
+        emit ProfileSelectorFinishedSelection(std::nullopt);
+        return;
+    }
+
+    emit ProfileSelectorFinishedSelection(uuid);
+}
+
 void GMainWindow::SoftwareKeyboardGetText(
     const Core::Frontend::SoftwareKeyboardParameters& parameters) {
     QtSoftwareKeyboardDialog dialog(this, parameters);
@@ -334,6 +358,9 @@ void GMainWindow::InitializeHotkeys() {
                                    Qt::ApplicationShortcut);
     hotkey_registry.RegisterHotkey("Main Window", "Load Amiibo", QKeySequence(Qt::Key_F2),
                                    Qt::ApplicationShortcut);
+    hotkey_registry.RegisterHotkey("Main Window", "Capture Screenshot",
+                                   QKeySequence(QKeySequence::Print));
+
     hotkey_registry.LoadHotkeys();
 
     connect(hotkey_registry.GetHotkey("Main Window", "Load File", this), &QShortcut::activated,
@@ -393,6 +420,12 @@ void GMainWindow::InitializeHotkeys() {
                     OnLoadAmiibo();
                 }
             });
+    connect(hotkey_registry.GetHotkey("Main Window", "Capture Screenshot", this),
+            &QShortcut::activated, this, [&] {
+                if (emu_thread->IsRunning()) {
+                    OnCaptureScreenshot();
+                }
+            });
 }
 
 void GMainWindow::SetDefaultUIGeometry() {
@@ -441,6 +474,8 @@ void GMainWindow::ConnectWidgetEvents() {
     connect(game_list, &GameList::CopyTIDRequested, this, &GMainWindow::OnGameListCopyTID);
     connect(game_list, &GameList::NavigateToGamedbEntryRequested, this,
             &GMainWindow::OnGameListNavigateToGamedbEntry);
+    connect(game_list, &GameList::OpenPerGameGeneralRequested, this,
+            &GMainWindow::OnGameListOpenPerGameProperties);
 
     connect(this, &GMainWindow::EmulationStarting, render_window,
             &GRenderWindow::OnEmulationStarting);
@@ -488,6 +523,10 @@ void GMainWindow::ConnectMenuEvents() {
         hotkey_registry.GetHotkey("Main Window", "Fullscreen", this)->key());
     connect(ui.action_Fullscreen, &QAction::triggered, this, &GMainWindow::ToggleFullscreen);
 
+    // Movie
+    connect(ui.action_Capture_Screenshot, &QAction::triggered, this,
+            &GMainWindow::OnCaptureScreenshot);
+
     // Help
     connect(ui.action_Open_yuzu_Folder, &QAction::triggered, this, &GMainWindow::OnOpenYuzuFolder);
     connect(ui.action_Rederive, &QAction::triggered, this,
@@ -518,6 +557,8 @@ void GMainWindow::OnDisplayTitleBars(bool show) {
 QStringList GMainWindow::GetUnsupportedGLExtensions() {
     QStringList unsupported_ext;
 
+    if (!GLAD_GL_ARB_direct_state_access)
+        unsupported_ext.append("ARB_direct_state_access");
     if (!GLAD_GL_ARB_vertex_type_10f_11f_11f_rev)
         unsupported_ext.append("ARB_vertex_type_10f_11f_11f_rev");
     if (!GLAD_GL_ARB_texture_mirror_clamp_to_edge)
@@ -569,6 +610,7 @@ bool GMainWindow::LoadROM(const QString& filename) {
 
     system.SetGPUDebugContext(debug_context);
 
+    system.SetProfileSelector(std::make_unique<QtProfileSelector>(*this));
     system.SetSoftwareKeyboard(std::make_unique<QtSoftwareKeyboard>(*this));
 
     const Core::System::ResultStatus result{system.Load(*render_window, filename.toStdString())};
@@ -722,6 +764,7 @@ void GMainWindow::ShutdownGame() {
     ui.action_Restart->setEnabled(false);
     ui.action_Report_Compatibility->setEnabled(false);
     ui.action_Load_Amiibo->setEnabled(false);
+    ui.action_Capture_Screenshot->setEnabled(false);
     render_window->hide();
     game_list->show();
     game_list->setFilterFocus();
@@ -905,7 +948,7 @@ void GMainWindow::OnGameListDumpRomFS(u64 program_id, const std::string& game_pa
     }
 
     const auto installed = Service::FileSystem::GetUnionContents();
-    auto romfs_title_id = SelectRomFSDumpTarget(*installed, program_id);
+    const auto romfs_title_id = SelectRomFSDumpTarget(installed, program_id);
 
     if (!romfs_title_id) {
         failed();
@@ -920,7 +963,7 @@ void GMainWindow::OnGameListDumpRomFS(u64 program_id, const std::string& game_pa
     if (*romfs_title_id == program_id) {
         romfs = file;
     } else {
-        romfs = installed->GetEntry(*romfs_title_id, FileSys::ContentRecordType::Data)->GetRomFS();
+        romfs = installed.GetEntry(*romfs_title_id, FileSys::ContentRecordType::Data)->GetRomFS();
     }
 
     const auto extracted = FileSys::ExtractRomFS(romfs, FileSys::RomFSExtractionType::Full);
@@ -984,6 +1027,32 @@ void GMainWindow::OnGameListNavigateToGamedbEntry(u64 program_id,
         directory = it->second.second;
 
     QDesktopServices::openUrl(QUrl("https://yuzu-emu.org/game/" + directory));
+}
+
+void GMainWindow::OnGameListOpenPerGameProperties(const std::string& file) {
+    u64 title_id{};
+    const auto v_file = Core::GetGameFileFromPath(vfs, file);
+    const auto loader = Loader::GetLoader(v_file);
+    if (loader == nullptr || loader->ReadProgramId(title_id) != Loader::ResultStatus::Success) {
+        QMessageBox::information(this, tr("Properties"),
+                                 tr("The game properties could not be loaded."));
+        return;
+    }
+
+    ConfigurePerGameGeneral dialog(this, title_id);
+    dialog.loadFromFile(v_file);
+    auto result = dialog.exec();
+    if (result == QDialog::Accepted) {
+        dialog.applyConfiguration();
+
+        const auto reload = UISettings::values.is_game_list_reload_pending.exchange(false);
+        if (reload) {
+            game_list->PopulateAsync(UISettings::values.gamedir,
+                                     UISettings::values.gamedir_deepscan);
+        }
+
+        config->Save();
+    }
 }
 
 void GMainWindow::OnMenuLoadFile() {
@@ -1259,6 +1328,7 @@ void GMainWindow::OnStartGame() {
 
     discord_rpc->Update();
     ui.action_Load_Amiibo->setEnabled(true);
+    ui.action_Capture_Screenshot->setEnabled(true);
 }
 
 void GMainWindow::OnPauseGame() {
@@ -1267,6 +1337,7 @@ void GMainWindow::OnPauseGame() {
     ui.action_Start->setEnabled(true);
     ui.action_Pause->setEnabled(false);
     ui.action_Stop->setEnabled(true);
+    ui.action_Capture_Screenshot->setEnabled(false);
 }
 
 void GMainWindow::OnStopGame() {
@@ -1427,6 +1498,18 @@ void GMainWindow::OnToggleFilterBar() {
     } else {
         game_list->clearFilter();
     }
+}
+
+void GMainWindow::OnCaptureScreenshot() {
+    OnPauseGame();
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Capture Screenshot"),
+                                     UISettings::values.screenshot_path, tr("PNG Image (*.png)"));
+    if (!path.isEmpty()) {
+        UISettings::values.screenshot_path = QFileInfo(path).path();
+        render_window->CaptureScreenshot(UISettings::values.screenshot_resolution_factor, path);
+    }
+    OnStartGame();
 }
 
 void GMainWindow::UpdateStatusBar() {

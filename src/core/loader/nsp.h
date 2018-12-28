@@ -31,7 +31,7 @@ public:
      */
     static FileType IdentifyType(const FileSys::VirtualFile& file);
 
-    FileType GetFileType() override {
+    FileType GetFileType() const override {
         return IdentifyType(file);
     }
 
@@ -43,6 +43,7 @@ public:
     ResultStatus ReadProgramId(u64& out_program_id) override;
     ResultStatus ReadIcon(std::vector<u8>& buffer) override;
     ResultStatus ReadTitle(std::string& title) override;
+    ResultStatus ReadControlData(FileSys::NACP& nacp) override;
 
 private:
     std::unique_ptr<FileSys::NSP> nsp;

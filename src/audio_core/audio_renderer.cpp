@@ -8,7 +8,7 @@
 #include "audio_core/codec.h"
 #include "common/assert.h"
 #include "common/logging/log.h"
-#include "core/hle/kernel/event.h"
+#include "core/hle/kernel/writable_event.h"
 #include "core/memory.h"
 
 namespace AudioCore {
@@ -72,7 +72,7 @@ private:
     EffectInStatus info{};
 };
 AudioRenderer::AudioRenderer(AudioRendererParameter params,
-                             Kernel::SharedPtr<Kernel::Event> buffer_event)
+                             Kernel::SharedPtr<Kernel::WritableEvent> buffer_event)
     : worker_params{params}, buffer_event{buffer_event}, voices(params.voice_count),
       effects(params.effect_count) {
 
@@ -285,8 +285,11 @@ void AudioRenderer::VoiceState::RefreshBuffer() {
         break;
     }
 
-    samples =
-        Interpolate(interp_state, std::move(samples), GetInfo().sample_rate, STREAM_SAMPLE_RATE);
+    // Only interpolate when necessary, expensive.
+    if (GetInfo().sample_rate != STREAM_SAMPLE_RATE) {
+        samples = Interpolate(interp_state, std::move(samples), GetInfo().sample_rate,
+                              STREAM_SAMPLE_RATE);
+    }
 
     is_refresh_pending = false;
 }

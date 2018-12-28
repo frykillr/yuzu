@@ -7,8 +7,8 @@
 #include <array>
 #include <memory>
 
+#include <QDialog>
 #include <QKeyEvent>
-#include <QWidget>
 
 #include "ui_configure_input.h"
 
@@ -20,19 +20,20 @@ namespace Ui {
 class ConfigureInput;
 }
 
-class ConfigureInput : public QWidget {
+void OnDockedModeChanged(bool last_state, bool new_state);
+
+class ConfigureInput : public QDialog {
     Q_OBJECT
 
 public:
     explicit ConfigureInput(QWidget* parent = nullptr);
+    ~ConfigureInput() override;
 
     /// Save all button configurations to settings file
     void applyConfiguration();
 
 private:
     void updateUIEnabled();
-
-    void OnDockedModeChanged(bool last_state, bool new_state);
 
     /// Load configuration settings.
     void loadConfiguration();

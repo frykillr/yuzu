@@ -4,6 +4,7 @@
 
 #include <memory>
 #include "common/logging/log.h"
+#include "core/core.h"
 #include "core/settings.h"
 #include "video_core/renderer_base.h"
 #include "video_core/renderer_opengl/renderer_opengl.h"
@@ -25,6 +26,12 @@ std::unique_ptr<RendererBase> CreateRenderer(Core::Frontend::EmuWindow& emu_wind
     default:
         return nullptr;
     }
+}
+
+u16 GetResolutionScaleFactor(const RendererBase& renderer) {
+    return !Settings::values.resolution_factor
+               ? renderer.GetRenderWindow().GetFramebufferLayout().GetScalingRatio()
+               : Settings::values.resolution_factor;
 }
 
 } // namespace VideoCore

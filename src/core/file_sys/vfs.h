@@ -150,7 +150,7 @@ public:
     template <typename T>
     std::size_t WriteArray(const T* data, std::size_t number_elements, std::size_t offset = 0) {
         static_assert(std::is_trivially_copyable_v<T>, "Data type must be trivially copyable.");
-        return Write(data, number_elements * sizeof(T), offset);
+        return Write(reinterpret_cast<const u8*>(data), number_elements * sizeof(T), offset);
     }
 
     // Writes size bytes starting at memory location data to offset in file.
@@ -166,7 +166,7 @@ public:
     template <typename T>
     std::size_t WriteObject(const T& data, std::size_t offset = 0) {
         static_assert(std::is_trivially_copyable_v<T>, "Data type must be trivially copyable.");
-        return Write(&data, sizeof(T), offset);
+        return Write(reinterpret_cast<const u8*>(&data), sizeof(T), offset);
     }
 
     // Renames the file to name. Returns whether or not the operation was successsful.
@@ -245,12 +245,18 @@ public:
     // any failure.
     virtual std::shared_ptr<VfsDirectory> CreateDirectoryAbsolute(std::string_view path);
 
-    // Deletes the subdirectory with name and returns true on success.
+    // Deletes the subdirectory with the given name and returns true on success.
     virtual bool DeleteSubdirectory(std::string_view name) = 0;
-    // Deletes all subdirectories and files of subdirectory with name recirsively and then deletes
-    // the subdirectory. Returns true on success.
+
+    // Deletes all subdirectories and files within the provided directory and then deletes
+    // the directory itself. Returns true on success.
     virtual bool DeleteSubdirectoryRecursive(std::string_view name);
-    // Returnes whether or not the file with name name was deleted successfully.
+
+    // Deletes all subdirectories and files within the provided directory.
+    // Unlike DeleteSubdirectoryRecursive, this does not delete the provided directory.
+    virtual bool CleanSubdirectoryRecursive(std::string_view name);
+
+    // Returns whether or not the file with name name was deleted successfully.
     virtual bool DeleteFile(std::string_view name) = 0;
 
     // Returns whether or not this directory was renamed to name.
@@ -276,7 +282,13 @@ public:
     bool IsReadable() const override;
     std::shared_ptr<VfsDirectory> CreateSubdirectory(std::string_view name) override;
     std::shared_ptr<VfsFile> CreateFile(std::string_view name) override;
+    std::shared_ptr<VfsFile> CreateFileAbsolute(std::string_view path) override;
+    std::shared_ptr<VfsFile> CreateFileRelative(std::string_view path) override;
+    std::shared_ptr<VfsDirectory> CreateDirectoryAbsolute(std::string_view path) override;
+    std::shared_ptr<VfsDirectory> CreateDirectoryRelative(std::string_view path) override;
     bool DeleteSubdirectory(std::string_view name) override;
+    bool DeleteSubdirectoryRecursive(std::string_view name) override;
+    bool CleanSubdirectoryRecursive(std::string_view name) override;
     bool DeleteFile(std::string_view name) override;
     bool Rename(std::string_view name) override;
 };

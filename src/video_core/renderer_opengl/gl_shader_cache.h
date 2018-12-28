@@ -11,6 +11,7 @@
 #include "common/common_types.h"
 #include "video_core/rasterizer_cache.h"
 #include "video_core/renderer_opengl/gl_resource_manager.h"
+#include "video_core/renderer_opengl/gl_shader_decompiler.h"
 #include "video_core/renderer_opengl/gl_shader_gen.h"
 
 namespace OpenGL {
@@ -67,6 +68,7 @@ public:
                                        6, "ShaderTrianglesAdjacency");
         default:
             UNREACHABLE_MSG("Unknown primitive mode.");
+            return LazyGeometryProgram(geometry_programs.points, "points", 1, "ShaderPoints");
         }
     }
 
@@ -80,6 +82,8 @@ private:
     /// Generates a geometry shader or returns one that already exists.
     GLuint LazyGeometryProgram(OGLProgram& target_program, const std::string& glsl_topology,
                                u32 max_vertices, const std::string& debug_name);
+
+    void CalculateProperties();
 
     VAddr addr;
     std::size_t shader_length;

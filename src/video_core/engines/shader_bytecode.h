@@ -397,6 +397,10 @@ struct IpaMode {
     bool operator!=(const IpaMode& a) const {
         return !operator==(a);
     }
+    bool operator<(const IpaMode& a) const {
+        return std::tie(interpolation_mode, sampling_mode) <
+               std::tie(a.interpolation_mode, a.sampling_mode);
+    }
 };
 
 enum class SystemVariable : u64 {
@@ -575,7 +579,7 @@ union Instruction {
 
     union {
         BitField<39, 2, u64> tab5cb8_2;
-        BitField<41, 3, u64> tab5c68_1;
+        BitField<41, 3, u64> postfactor;
         BitField<44, 2, u64> tab5c68_0;
         BitField<48, 1, u64> negate_b;
     } fmul;
@@ -609,7 +613,7 @@ union Instruction {
 
         BitField<31, 1, u64> negate_b;
         BitField<30, 1, u64> abs_b;
-        BitField<47, 2, HalfType> type_b;
+        BitField<28, 2, HalfType> type_b;
 
         BitField<35, 2, HalfType> type_c;
     } alu_half;
@@ -644,6 +648,7 @@ union Instruction {
             BitField<37, 2, HalfPrecision> precision;
             BitField<32, 1, u64> saturate;
 
+            BitField<31, 1, u64> negate_b;
             BitField<30, 1, u64> negate_c;
             BitField<35, 2, HalfType> type_c;
         } rr;
@@ -1049,6 +1054,7 @@ union Instruction {
         BitField<49, 1, u64> nodep_flag;
         BitField<50, 3, u64> component_mask_selector;
         BitField<53, 4, u64> texture_info;
+        BitField<59, 1, u64> fp32_flag;
 
         TextureType GetTextureType() const {
             // The TEXS instruction has a weird encoding for the texture type.
@@ -1064,6 +1070,7 @@ union Instruction {
             LOG_CRITICAL(HW_GPU, "Unhandled texture_info: {}",
                          static_cast<u32>(texture_info.Value()));
             UNREACHABLE();
+            return TextureType::Texture1D;
         }
 
         TextureProcessMode GetTextureProcessMode() const {
@@ -1144,6 +1151,7 @@ union Instruction {
             LOG_CRITICAL(HW_GPU, "Unhandled texture_info: {}",
                          static_cast<u32>(texture_info.Value()));
             UNREACHABLE();
+            return TextureType::Texture1D;
         }
 
         TextureProcessMode GetTextureProcessMode() const {
@@ -1428,6 +1436,7 @@ public:
         PredicateSetRegister,
         RegisterSetPredicate,
         Conversion,
+        Video,
         Xmad,
         Unknown,
     };
@@ -1549,7 +1558,7 @@ private:
             INST("1110111011011---", Id::STG, Type::Memory, "STG"),
             INST("110000----111---", Id::TEX, Type::Memory, "TEX"),
             INST("1101111101001---", Id::TXQ, Type::Memory, "TXQ"),
-            INST("1101100---------", Id::TEXS, Type::Memory, "TEXS"),
+            INST("1101-00---------", Id::TEXS, Type::Memory, "TEXS"),
             INST("1101101---------", Id::TLDS, Type::Memory, "TLDS"),
             INST("110010----111---", Id::TLD4, Type::Memory, "TLD4"),
             INST("1101111100------", Id::TLD4S, Type::Memory, "TLD4S"),
@@ -1559,8 +1568,8 @@ private:
             INST("11100000--------", Id::IPA, Type::Trivial, "IPA"),
             INST("1111101111100---", Id::OUT_R, Type::Trivial, "OUT_R"),
             INST("1110111111010---", Id::ISBERD, Type::Trivial, "ISBERD"),
-            INST("01011111--------", Id::VMAD, Type::Trivial, "VMAD"),
-            INST("0101000011110---", Id::VSETP, Type::Trivial, "VSETP"),
+            INST("01011111--------", Id::VMAD, Type::Video, "VMAD"),
+            INST("0101000011110---", Id::VSETP, Type::Video, "VSETP"),
             INST("0011001-1-------", Id::FFMA_IMM, Type::Ffma, "FFMA_IMM"),
             INST("010010011-------", Id::FFMA_CR, Type::Ffma, "FFMA_CR"),
             INST("010100011-------", Id::FFMA_RC, Type::Ffma, "FFMA_RC"),

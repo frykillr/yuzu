@@ -13,6 +13,7 @@
 namespace Kernel {
 
 enum KernelHandle : Handle {
+    InvalidHandle = 0,
     CurrentThread = 0xFFFF8000,
     CurrentProcess = 0xFFFF8001,
 };
@@ -42,6 +43,9 @@ enum KernelHandle : Handle {
  */
 class HandleTable final : NonCopyable {
 public:
+    /// This is the maximum limit of handles allowed per process in Horizon
+    static constexpr std::size_t MAX_COUNT = 1024;
+
     HandleTable();
     ~HandleTable();
 
@@ -90,9 +94,6 @@ public:
     void Clear();
 
 private:
-    /// This is the maximum limit of handles allowed per process in Horizon
-    static constexpr std::size_t MAX_COUNT = 1024;
-
     /// Stores the Object referenced by the handle or null if the slot is empty.
     std::array<SharedPtr<Object>, MAX_COUNT> objects;
 

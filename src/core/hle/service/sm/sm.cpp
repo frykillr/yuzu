@@ -54,13 +54,11 @@ ResultVal<Kernel::SharedPtr<Kernel::ServerPort>> ServiceManager::RegisterService
         return ERR_ALREADY_REGISTERED;
 
     auto& kernel = Core::System::GetInstance().Kernel();
-    Kernel::SharedPtr<Kernel::ServerPort> server_port;
-    Kernel::SharedPtr<Kernel::ClientPort> client_port;
-    std::tie(server_port, client_port) =
+    auto [server_port, client_port] =
         Kernel::ServerPort::CreatePortPair(kernel, max_sessions, name);
 
     registered_services.emplace(std::move(name), std::move(client_port));
-    return MakeResult<Kernel::SharedPtr<Kernel::ServerPort>>(std::move(server_port));
+    return MakeResult(std::move(server_port));
 }
 
 ResultCode ServiceManager::UnregisterService(const std::string& name) {
@@ -83,7 +81,7 @@ ResultVal<Kernel::SharedPtr<Kernel::ClientPort>> ServiceManager::GetServicePort(
         return ERR_SERVICE_NOT_REGISTERED;
     }
 
-    return MakeResult<Kernel::SharedPtr<Kernel::ClientPort>>(it->second);
+    return MakeResult(it->second);
 }
 
 ResultVal<Kernel::SharedPtr<Kernel::ClientSession>> ServiceManager::ConnectToService(
@@ -103,9 +101,10 @@ SM::~SM() = default;
  *      0: ResultCode
  */
 void SM::Initialize(Kernel::HLERequestContext& ctx) {
+    LOG_DEBUG(Service_SM, "called");
+
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(RESULT_SUCCESS);
-    LOG_DEBUG(Service_SM, "called");
 }
 
 void SM::GetService(Kernel::HLERequestContext& ctx) {
@@ -146,12 +145,13 @@ void SM::RegisterService(Kernel::HLERequestContext& ctx) {
 
     const std::string name(name_buf.begin(), end);
 
-    const auto unk_bool = static_cast<bool>(rp.PopRaw<u32>());
-    const auto session_count = rp.PopRaw<u32>();
+    const auto is_light = static_cast<bool>(rp.PopRaw<u32>());
+    const auto max_session_count = rp.PopRaw<u32>();
 
-    LOG_DEBUG(Service_SM, "called with unk_bool={}", unk_bool);
+    LOG_DEBUG(Service_SM, "called with name={}, max_session_count={}, is_light={}", name,
+              max_session_count, is_light);
 
-    auto handle = service_manager->RegisterService(name, session_count);
+    auto handle = service_manager->RegisterService(name, max_session_count);
     if (handle.Failed()) {
         LOG_ERROR(Service_SM, "failed to register service with error_code={:08X}",
                   handle.Code().raw);
@@ -172,6 +172,7 @@ void SM::UnregisterService(Kernel::HLERequestContext& ctx) {
     const auto end = std::find(name_buf.begin(), name_buf.end(), '\0');
 
     const std::string name(name_buf.begin(), end);
+    LOG_DEBUG(Service_SM, "called with name={}", name);
 
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(service_manager->UnregisterService(name));

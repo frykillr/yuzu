@@ -7,10 +7,10 @@
 
 #include "common/assert.h"
 #include "core/core.h"
-#include "core/hle/kernel/event.h"
 #include "core/hle/kernel/handle_table.h"
 #include "core/hle/kernel/mutex.h"
 #include "core/hle/kernel/process.h"
+#include "core/hle/kernel/readable_event.h"
 #include "core/hle/kernel/scheduler.h"
 #include "core/hle/kernel/thread.h"
 #include "core/hle/kernel/timer.h"
@@ -75,7 +75,7 @@ std::vector<std::unique_ptr<WaitTreeThread>> WaitTreeItem::MakeThreadItemList() 
     return item_list;
 }
 
-WaitTreeText::WaitTreeText(const QString& t) : text(t) {}
+WaitTreeText::WaitTreeText(QString t) : text(std::move(t)) {}
 WaitTreeText::~WaitTreeText() = default;
 
 QString WaitTreeText::GetText() const {
@@ -153,8 +153,8 @@ QString WaitTreeWaitObject::GetText() const {
 
 std::unique_ptr<WaitTreeWaitObject> WaitTreeWaitObject::make(const Kernel::WaitObject& object) {
     switch (object.GetHandleType()) {
-    case Kernel::HandleType::Event:
-        return std::make_unique<WaitTreeEvent>(static_cast<const Kernel::Event&>(object));
+    case Kernel::HandleType::ReadableEvent:
+        return std::make_unique<WaitTreeEvent>(static_cast<const Kernel::ReadableEvent&>(object));
     case Kernel::HandleType::Timer:
         return std::make_unique<WaitTreeTimer>(static_cast<const Kernel::Timer&>(object));
     case Kernel::HandleType::Thread:
@@ -221,6 +221,9 @@ QString WaitTreeThread::GetText() const {
     case Kernel::ThreadStatus::Ready:
         status = tr("ready");
         break;
+    case Kernel::ThreadStatus::Paused:
+        status = tr("paused");
+        break;
     case Kernel::ThreadStatus::WaitHLEEvent:
         status = tr("waiting for HLE return");
         break;
@@ -262,6 +265,8 @@ QColor WaitTreeThread::GetColor() const {
         return QColor(Qt::GlobalColor::darkGreen);
     case Kernel::ThreadStatus::Ready:
         return QColor(Qt::GlobalColor::darkBlue);
+    case Kernel::ThreadStatus::Paused:
+        return QColor(Qt::GlobalColor::lightGray);
     case Kernel::ThreadStatus::WaitHLEEvent:
     case Kernel::ThreadStatus::WaitIPC:
         return QColor(Qt::GlobalColor::darkRed);
@@ -332,7 +337,7 @@ std::vector<std::unique_ptr<WaitTreeItem>> WaitTreeThread::GetChildren() const {
     return list;
 }
 
-WaitTreeEvent::WaitTreeEvent(const Kernel::Event& object) : WaitTreeWaitObject(object) {}
+WaitTreeEvent::WaitTreeEvent(const Kernel::ReadableEvent& object) : WaitTreeWaitObject(object) {}
 WaitTreeEvent::~WaitTreeEvent() = default;
 
 std::vector<std::unique_ptr<WaitTreeItem>> WaitTreeEvent::GetChildren() const {
@@ -340,7 +345,8 @@ std::vector<std::unique_ptr<WaitTreeItem>> WaitTreeEvent::GetChildren() const {
 
     list.push_back(std::make_unique<WaitTreeText>(
         tr("reset type = %1")
-            .arg(GetResetTypeQString(static_cast<const Kernel::Event&>(object).GetResetType()))));
+            .arg(GetResetTypeQString(
+                static_cast<const Kernel::ReadableEvent&>(object).GetResetType()))));
     return list;
 }
 
