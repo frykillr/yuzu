@@ -2,9 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cstdio>
+
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
+#include "video_core/shader/shader_ir.h"
 
 #pragma optimize("", off)
 
@@ -13,51 +16,49 @@ namespace Vulkan::VKShader {
 static constexpr u32 PROGRAM_OFFSET{10};
 
 using Maxwell = Tegra::Engines::Maxwell3D::Regs;
-
-#include <cstdio>
+using namespace VideoCommon::Shader;
 
 ProgramResult GenerateVertexShader(const ShaderSetup& setup) {
     // TODO(Rodrigo): Add vertex stage B.
-    Decompiler::SpirvModule module(setup.program.code, PROGRAM_OFFSET,
-                                   Maxwell::ShaderStage::Vertex);
-    const auto vertex_entry = module.Decompile();
-    const auto main = module.Emit(
-        module.OpFunction(module.OpTypeVoid(), {}, module.OpTypeFunction(module.OpTypeVoid())));
-    module.Emit(module.OpLabel());
-    module.Emit(module.OpFunctionCall(module.OpTypeBool(), vertex_entry));
-    module.Emit(module.OpReturn());
-    module.Emit(module.OpFunctionEnd());
-    module.AddEntryPoint(spv::ExecutionModel::Vertex, main, "main", module.GetInterfaces());
+    const ShaderIR ir(setup.program.code, PROGRAM_OFFSET);
 
-    const auto code = module.Assemble();
-    FILE* out = fopen("D:\\vertex.spv", "wb");
+    const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Vertex);
+    const auto vertex_entry = entries.entry_function;
+    const auto main = module->Emit(
+        module->OpFunction(module->OpTypeVoid(), {}, module->OpTypeFunction(module->OpTypeVoid())));
+    module->Emit(module->OpLabel());
+    module->Emit(module->OpFunctionCall(module->OpTypeVoid(), vertex_entry));
+    module->Emit(module->OpReturn());
+    module->Emit(module->OpFunctionEnd());
+    module->AddEntryPoint(spv::ExecutionModel::Vertex, main, "main", entries.interfaces);
+
+    const auto code = module->Assemble();
+    FILE* out = fopen("E:\\vertex.spv", "wb");
     fwrite(code.data(), 1, code.size(), out);
     fclose(out);
-    return {code, module.GetEntries()};
+    return {code, entries};
 }
 
 ProgramResult GenerateFragmentShader(const ShaderSetup& setup) {
-    /*FILE* aa = fopen("D:\\code.bin", "wb");
-    fwrite(setup.program.code.data() + 10, 1, setup.program.code.size() - 10, aa);
-    fclose(aa);*/
+    const ShaderIR ir(setup.program.code, PROGRAM_OFFSET);
 
-    Decompiler::SpirvModule module(setup.program.code, PROGRAM_OFFSET,
-                                   Maxwell::ShaderStage::Fragment);
-    const auto fragment_entry = module.Decompile();
-    const auto main = module.Emit(
-        module.OpFunction(module.OpTypeVoid(), {}, module.OpTypeFunction(module.OpTypeVoid())));
-    module.Emit(module.OpLabel());
-    module.Emit(module.OpFunctionCall(module.OpTypeBool(), fragment_entry));
-    module.Emit(module.OpReturn());
-    module.Emit(module.OpFunctionEnd());
-    module.AddEntryPoint(spv::ExecutionModel::Fragment, main, "main", module.GetInterfaces());
-    module.AddExecutionMode(main, spv::ExecutionMode::OriginUpperLeft);
+    const auto [module, entries] = Decompile(ir, Maxwell::ShaderStage::Fragment);
+    const auto fragment_entry = entries.entry_function;
+    const auto main = module->Emit(
+        module->OpFunction(module->OpTypeVoid(), {}, module->OpTypeFunction(module->OpTypeVoid())));
+    module->Emit(module->OpLabel());
+    module->Emit(module->OpFunctionCall(module->OpTypeVoid(), fragment_entry));
+    module->Emit(module->OpReturn());
+    module->Emit(module->OpFunctionEnd());
+    module->AddEntryPoint(spv::ExecutionModel::Fragment, main, "main", entries.interfaces);
+    module->AddExecutionMode(main, spv::ExecutionMode::OriginUpperLeft);
 
-    const auto code = module.Assemble();
-    FILE* out = fopen("D:\\fragment.spv", "wb");
+    const auto code = module->Assemble();
+    FILE* out = fopen("E:\\fragment.spv", "wb");
     fwrite(code.data(), 1, code.size(), out);
     fclose(out);
-    return {code, module.GetEntries()};
+
+    return {code, entries};
 }
 
 } // namespace Vulkan::VKShader

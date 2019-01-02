@@ -12,6 +12,7 @@
 #include "common/static_vector.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/rasterizer_cache.h"
+#include "video_core/renderer_vulkan/vk_shader_decompiler.h"
 #include "video_core/renderer_vulkan/vk_shader_gen.h"
 #include "video_core/surface.h"
 

@@ -6,349 +6,79 @@
 
 #include <array>
 #include <memory>
-#include <optional>
 #include <set>
+#include <utility>
+#include <vector>
+
 #include <sirit/sirit.h>
+
 #include "common/common_types.h"
 #include "video_core/engines/maxwell_3d.h"
-#include "video_core/engines/shader_bytecode.h"
-#include "video_core/engines/shader_header.h"
-#include "video_core/renderer_vulkan/vk_shader_gen.h"
+#include "video_core/shader/shader_ir.h"
 
-namespace Vulkan::VKShader::Decompiler {
+namespace VideoCommon::Shader {
+class ShaderIR;
+}
 
-using Sirit::Id;
-using Tegra::Engines::Maxwell3D;
-using Tegra::Shader::Attribute;
-using Tegra::Shader::Instruction;
-using Tegra::Shader::Register;
+namespace Vulkan::VKShader {
 
-struct Subroutine;
+using Maxwell = Tegra::Engines::Maxwell3D::Regs;
 
-class SpirvModule final : public Sirit::Module {
+class ConstBufferEntry : public VideoCommon::Shader::ConstBuffer {
 public:
-    explicit SpirvModule(const ProgramCode& program_code, u32 main_offset,
-                         Maxwell3D::Regs::ShaderStage stage);
-    ~SpirvModule();
+    explicit constexpr ConstBufferEntry(const VideoCommon::Shader::ConstBuffer& entry,
+                                        Maxwell::ShaderStage stage, u32 binding, u32 index)
+        : VideoCommon::Shader::ConstBuffer{entry}, stage{stage}, binding{binding}, index{index} {}
 
-    Id Decompile();
-
-    const std::vector<Id>& GetInterfaces() const {
-        return interfaces;
+    constexpr Maxwell::ShaderStage GetStage() const {
+        return stage;
     }
 
-    ShaderEntries GetEntries() const {
-        ShaderEntries entries;
-        entries.shader_length = shader_length;
-        entries.descriptor_set = descriptor_set;
-        for (const auto& const_buffer_entry : declr_const_buffers) {
-            if (const_buffer_entry.IsUsed()) {
-                entries.const_buffers.push_back(const_buffer_entry);
-            }
-        }
-        for (const auto& input_entry : declr_input_attribute) {
-            const auto attribute = input_entry.first;
-            const auto index{static_cast<u32>(attribute) -
-                             static_cast<u32>(Attribute::Index::Attribute_0)};
-            entries.attributes.insert(index);
-        }
-        for (const auto& sampler : used_samplers) {
-            entries.samplers.push_back(sampler.entry);
-        }
-        return entries;
+    constexpr u32 GetBinding() const {
+        return binding;
+    }
+
+    constexpr u32 GetIndex() const {
+        return index;
     }
 
 private:
-    struct InputAttributeEntry {
-        Id id;
-        Tegra::Shader::IpaMode input_mode;
-    };
-
-    struct ShaderSampler {
-        ShaderSampler(const SamplerEntry& entry, Id variable, Id type)
-            : entry{entry}, variable{variable}, type{type} {}
-
-        SamplerEntry entry;
-        Id variable;
-        Id type;
-    };
-
-    Id Generate(const std::set<Subroutine> subroutines);
-
-    /**
-     * Compiles a range of instructions from Tegra to SPIR-V.
-     * @param begin the offset of the starting instruction.
-     * @param end the offset where the compilation should stop (exclusive).
-     * @return the offset of the next instruction to compile. PROGRAM_END if the program terminates.
-     */
-    u32 CompileRange(u32 begin, u32 end);
-
-    /**
-     * Compiles a single instruction from Tegra to SPIR-V.
-     * @param offset the offset of the Tegra shader instruction.
-     * @return the offset of the next instruction to execute. Usually it is the current offset + 1.
-     * If the current instruction always terminates the program, returns PROGRAM_END.
-     */
-    u32 CompileInstr(u32 offset);
-
-    void DeclareVariables();
-
-    void DeclareBuiltIns();
-
-    /// Declares fragment shader output variables.
-    void DeclareFragmentOutputs();
-
-    /*
-     * Returns whether the instruction at the specified offset is a 'sched' instruction.
-     * Sched instructions always appear before a sequence of 3 instructions.
-     */
-    bool IsSchedInstruction(u32 offset) const;
-
-    /**
-     * Returns code that does an integer size conversion for the specified size.
-     * @param type Type of the returned integer.
-     * @param value Value to perform integer size conversion on.
-     * @param size Register size to use for conversion instructions.
-     * @returns SPIR-V id corresponding to the value converted to the specified size.
-     */
-    Id ConvertIntegerSize(Id type, Id value, Register::Size size);
-
-    /// Generates code representing a temporary (GPR) register.
-    Id GetRegister(const Register& reg, u32 elem);
-
-    /**
-     * Gets a register as an float.
-     * @param reg The register to get.
-     * @param elem The element to use for the operation.
-     * @returns SPIR-V id corresponding to the register as a float.
-     */
-    Id GetRegisterAsFloat(const Register& reg, u32 elem = 0);
-
-    /**
-     * Gets a register as an integer.
-     * @param reg The register to get.
-     * @param elem The element to use for the operation.
-     * @param is_signed Whether to get the register as a signed (or unsigned) integer.
-     * @param size Register size to use for conversion instructions.
-     * @returns SPIR-V id corresponding to the register as an integer.
-     */
-    Id GetRegisterAsInteger(const Register& reg, u32 elem = 0, bool is_signed = true,
-                            Register::Size size = Register::Size::Word);
-
-    /// Generates code representing an input attribute register. Returns a float4 value.
-    Id GetInputAttribute(Attribute::Index attribute, const Tegra::Shader::IpaMode& input_mode,
-                         std::optional<Register> vertex = {});
-
-    /**
-     * Writes code that does a register assignment to float value operation.
-     * @param reg The destination register to use.
-     * @param elem The element to use for the operation.
-     * @param value The code representing the value to assign.
-     * @param is_saturated Optional, when True, saturates the provided value.
-     * @param precise Optional, when true the operation uses a precise decoration.
-     */
-    void SetRegisterToFloat(const Register& reg, u32 elem, Id value, bool is_saturated = false,
-                            bool precise = false);
-
-    /**
-     * Writes code that does a register assignment to integer value operation.
-     * @param reg The destination register to use.
-     * @param elem The element to use for the operation.
-     * @param value The code representing the value to assign.
-     * @param is_saturated Optional, when True, saturates the provided value.
-     * @param size Register size to use for conversion instructions.
-     */
-    void SetRegisterToInteger(const Register& reg, bool is_signed, u32 elem, Id value,
-                              bool is_saturated = false,
-                              Register::Size size = Register::Size::Word);
-
-    /**
-     * Writes code that does a register assignment to input attribute operation. Input attributes
-     * are stored as floats, so this may require conversion.
-     * @param reg The destination register to use.
-     * @param elem The element to use for the operation.
-     * @param attribute The input attribute to use as the source value.
-     * @param input_mode The input mode.
-     * @param vertex The register that decides which vertex to read from (used in GS).
-     */
-    void SetRegisterToInputAttibute(const Register& reg, u64 elem, Attribute::Index attribute,
-                                    const Tegra::Shader::IpaMode& input_mode,
-                                    std::optional<Register> vertex = {});
-
-    /**
-     * Writes code that does a output attribute assignment to register operation. Output attributes
-     * are stored as floats, so this may require conversion.
-     * @param attribute The destination output attribute.
-     * @param elem The element to use for the operation.
-     * @param val_reg The register to use as the source value.
-     * @param buf_reg The register that tells which buffer to write to (used in geometry shaders).
-     */
-    void SetOutputAttributeToRegister(Attribute::Index attribute, u64 elem, const Register& val_reg,
-                                      const Register& buf_reg);
-
-    /**
-     * Writes code that does a register assignment to value operation.
-     * @param reg The destination register to use.
-     * @param elem The element to use for the operation.
-     * @param value The code representing the value to assign.
-     * @param dest_num_components Number of components in the destination.
-     * @param value_num_components Number of components in the value.
-     * @param dest_elem Optional, the destination element to use for the operation.
-     */
-    void SetRegister(const Register& reg, u32 elem, Id value, bool precise);
-
-    /*
-     * Returns the condition to use in the 'if' for a predicated instruction.
-     * @param instr Instruction to generate the if condition for.
-     * @returns string containing the predicate condition.
-     */
-    Id GetPredicateCondition(u64 index, bool negate);
-
-    /// Gets a predicate value.
-    Id GetPredicate(u64 index);
-
-    /// Sets a predicate value
-    void SetPredicate(u64 pred, Id value);
-
-    /**
-     * Returns the operator string to use to combine two predicates in the 'setp' family of
-     * instructions.
-     * @params operation The operator used in the 'setp'-family instruction.
-     * @returns Id corresponding to the SPIR-V operator that matches the desired operator.
-     */
-    Id CombinePredicates(Tegra::Shader::PredOperation operation, Id op_a, Id op_b);
-
-    /**
-     * Returns the comparison to use to compare two values in the 'set' family of instructions.
-     * @param condition The condition used in the 'set'-family instruction.
-     * @param op_a First operand to use for the comparison.
-     * @param op_b Second operand to use for the comparison.
-     * @returns Id corresponding to the SPIR-V operator that matches the desired comparison.
-     */
-    Id GetPredicateComparison(Tegra::Shader::PredCondition condition, Id op_a, Id op_b);
-
-    /// Gets (and allocates) the sampler for the asked parameters.
-    Id GetSampler(const Tegra::Shader::Sampler& sampler, Tegra::Shader::TextureType type,
-                  bool is_array, bool is_shadow);
-
-    /// Generates code representing a 19-bit immediate value.
-    Id GetImmediate19(const Instruction& instr);
-
-    /// Generates code representing a 32-bit immediate value
-    Id GetImmediate32(const Instruction& instr);
-
-    /// Generates code representing a uniform (C buffer) register, interpreted as the input type.
-    Id GetUniform(u64 index, u64 offset, Id type, Register::Size size = Register::Size::Word);
-
-    /**
-     * Returns a uniform buffer value in an index.
-     * @param cbuf_index Constant buffer index.
-     * @param offset Offset applied to retreive const buffer's subindex.
-     * @param index Base index to retreive const buffer's subindex.
-     * @param type Type to return.
-     * @returns SPIR-V id corresponding to const buffer's value as type.
-     */
-    Id GetUniformIndirect(u64 cbuf_index, s64 offset, Id index, Id type);
-
-    Id DeclareUniform(u64 cbuf_index);
-
-    Id DeclareInputAttribute(Attribute::Index attribute, Tegra::Shader::IpaMode input_mode);
-
-    Id DeclareOutputAttribute(u32 index);
-
-    /**
-     * Transforms the input SPIR-V id operand into one that applies the abs() function and negates
-     * the output if necessary. When both abs and neg are true, the negation will be applied after
-     * taking the absolute value.
-     * @param operand The input operand to take the abs() of, negate, or both.
-     * @param abs Whether to apply the abs() function to the input operand.
-     * @param neg Whether to negate the input operand.
-     * @returns SPIR-V id corresponding to the operand after being transformed by the abs() and
-     * negation operations.
-     */
-    Id GetFloatOperandAbsNeg(Id operand, bool abs, bool neg);
-
-    /// Writes the output values from a fragment shader to the corresponding SPIR-V output
-    /// variables.
-    void EmitFragmentOutputsWrite();
-
-    static constexpr std::size_t REGISTER_COUNT = 0xff;
-    static constexpr std::size_t PRED_COUNT = 0xf; // Value untested.
-
-    static constexpr u32 MAX_CONSTBUFFER_SIZE = 0x10000;
-    static constexpr u32 MAX_CONSTBUFFER_ELEMENTS = MAX_CONSTBUFFER_SIZE / (4 * sizeof(float));
-
-    static constexpr u32 CBUF_STRIDE = 16;
-
-    const ProgramCode& program_code;
-    const u32 main_offset;
-    const Maxwell3D::Regs::ShaderStage stage;
-    const u32 descriptor_set;
-    std::size_t shader_length;
-    Tegra::Shader::Header header;
-
-    /// Binding iterator
-    u32 binding = 0;
-
-    std::vector<Id> interfaces;
-
-    struct {
-        Id per_vertex_struct{};
-        Id per_vertex{};
-        Id vertex_index{};
-        Id instance_index{};
-    } vs;
-
-    struct {
-        Id frag_coord{};
-        std::array<Id, Maxwell3D::Regs::NumRenderTargets> frag_colors{};
-        Id frag_depth{};
-    } fs;
-
-    std::vector<Id> regs;
-    std::vector<Id> predicates;
-    std::array<Id, Maxwell3D::Regs::MaxConstBuffers> cbufs{};
-
-    std::unordered_map<u32, Id> output_attrs;
-    std::unordered_map<Attribute::Index, InputAttributeEntry> declr_input_attribute;
-    std::array<ConstBufferEntry, Maxwell3D::Regs::MaxConstBuffers> declr_const_buffers;
-    std::vector<ShaderSampler> used_samplers;
-
-    const Id t_void = Name(OpTypeVoid(), "void");
-    const Id t_bool = Name(OpTypeBool(), "bool");
-    const Id t_float = Name(OpTypeFloat(32), "float");
-    const Id t_sint = Name(OpTypeInt(32, true), "sint");
-    const Id t_uint = Name(OpTypeInt(32, false), "uint");
-
-    const Id t_float2 = Name(OpTypeVector(t_float, 2), "float2");
-    const Id t_float3 = Name(OpTypeVector(t_float, 3), "float3");
-    const Id t_float4 = Name(OpTypeVector(t_float, 4), "float4");
-
-    const Id t_prv_bool = Name(OpTypePointer(spv::StorageClass::Private, t_bool), "prv_bool");
-    const Id t_prv_float = Name(OpTypePointer(spv::StorageClass::Private, t_float), "prv_float");
-
-    const Id t_in_uint = Name(OpTypePointer(spv::StorageClass::Input, t_uint), "in_uint");
-    const Id t_in_float4 = Name(OpTypePointer(spv::StorageClass::Input, t_float4), "in_float4");
-
-    const Id t_out_float = Name(OpTypePointer(spv::StorageClass::Output, t_float), "out_float");
-    const Id t_out_float4 = Name(OpTypePointer(spv::StorageClass::Output, t_float4), "out_float4");
-
-    const Id t_ubo_float = Name(OpTypePointer(spv::StorageClass::Uniform, t_float), "ubo_float");
-
-    const Id t_cbuf_array = Decorate(
-        Name(OpTypeArray(t_float4, Constant(t_uint, MAX_CONSTBUFFER_ELEMENTS)), "cbuf_array"),
-        spv::Decoration::ArrayStride, {CBUF_STRIDE});
-    const Id t_cbuf_struct = Name(OpTypeStruct({t_cbuf_array}), "cbuf_struct");
-    const Id t_cbuf_ubo =
-        Name(OpTypePointer(spv::StorageClass::Uniform, t_cbuf_struct), "cbuf_ubo");
-
-    const Id t_bool_function = OpTypeFunction(t_bool);
-
-    const Id v_float_zero = Constant(t_float, 0.f);
-    const Id v_float_one = Constant(t_float, 1.f);
-    const Id v_float4_zero = ConstantNull(t_float4);
-    const Id v_true = ConstantTrue(t_bool);
-    const Id v_false = ConstantFalse(t_bool);
+    Maxwell::ShaderStage stage{};
+    u32 binding{};
+    u32 index{};
 };
 
-} // namespace Vulkan::VKShader::Decompiler
+class SamplerEntry : public VideoCommon::Shader::Sampler {
+public:
+    explicit constexpr SamplerEntry(const VideoCommon::Shader::Sampler& entry,
+                                    Maxwell::ShaderStage stage, u32 binding)
+        : VideoCommon::Shader::Sampler{entry}, stage{stage}, binding{binding} {}
+
+    constexpr u32 GetBinding() const {
+        return binding;
+    }
+
+    constexpr Maxwell::ShaderStage GetStage() const {
+        return stage;
+    }
+
+private:
+    Maxwell::ShaderStage stage{};
+    u32 binding{};
+};
+
+struct ShaderEntries {
+    std::vector<ConstBufferEntry> const_buffers;
+    std::vector<SamplerEntry> samplers;
+    std::set<u32> attributes;
+    std::array<bool, Maxwell::NumClipDistances> clip_distances{};
+    std::size_t shader_length{};
+    Sirit::Id entry_function{};
+    std::vector<Sirit::Id> interfaces;
+};
+
+using DecompilerResult = std::pair<std::unique_ptr<Sirit::Module>, ShaderEntries>;
+
+DecompilerResult Decompile(const VideoCommon::Shader::ShaderIR& ir, Maxwell::ShaderStage stage);
+
+} // namespace Vulkan::VKShader
