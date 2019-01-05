@@ -14,6 +14,8 @@
 #include "video_core/renderer_vulkan/vk_device.h"
 #include "video_core/renderer_vulkan/vk_memory_manager.h"
 
+#pragma optimize("", off)
+
 namespace Vulkan {
 
 constexpr u64 ALLOC_CHUNK_SIZE = 64 * 1024 * 1024;
@@ -92,20 +94,24 @@ private:
             const u64 try_left = Common::AlignUp(iterator, alignment);
             const u64 try_right = try_left + size;
 
+            bool overlap = false;
             for (const auto& commit : commits) {
                 const auto [commit_left, commit_right] = commit->interval;
                 if (try_left < commit_right && commit_left < try_right) {
                     // There's an overlap, continue the search where the overlapping commit
                     // ends.
                     iterator = commit_right;
-                    continue;
+                    overlap = true;
+                    break;
                 }
             }
-            // A free address has been found.
-            return try_left;
+            if (!overlap) {
+                // A free address has been found.
+                return try_left;
+            }
         }
         // No free regions where found, return an empty optional.
-        return {};
+        return std::nullopt;
     }
 
     const vk::Device device;                  ///< Vulkan logical device.
