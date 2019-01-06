@@ -102,10 +102,7 @@ public:
             Emit(OpFunction(t_void, spv::FunctionControlMask::Inline, OpTypeFunction(t_void)));
         Emit(OpLabel());
 
-        // VM's program counter
         const u32 first_address = ir.GetBasicBlocks().begin()->first;
-        jmp_to = Emit(OpVariable(OpTypePointer(spv::StorageClass::Function, t_uint),
-                                 spv::StorageClass::Function, Constant(t_uint, first_address)));
 
         // TODO(Rodrigo): Figure out the actual depth of the flow stack, for now it seems unlikely
         // that shaders will use 20 nested SSYs and PBKs.
@@ -113,14 +110,13 @@ public:
         const Id flow_stack_type = OpTypeArray(t_uint, Constant(t_uint, FLOW_STACK_SIZE));
         flow_stack = Emit(OpVariable(OpTypePointer(spv::StorageClass::Function, flow_stack_type),
                                      spv::StorageClass::Function, ConstantNull(flow_stack_type)));
-        flow_stack_top = Emit(OpVariable(OpTypePointer(spv::StorageClass::Function, t_uint),
-                                         spv::StorageClass::Function, Constant(t_uint, 0)));
+        flow_stack_top =
+            Emit(OpVariable(t_func_uint, spv::StorageClass::Function, Constant(t_uint, 0)));
 
-        Name(jmp_to, "jmp_to");
         Name(flow_stack, "flow_stack");
         Name(flow_stack_top, "flow_stack_top");
 
-        const Id end_label = Name(OpLabel(), "end");
+        end_label = Name(OpLabel(), "end");
 
         Emit(OpBranch(labels.at(first_address)));
 
@@ -837,12 +833,47 @@ private:
         UNREACHABLE();
     }
 
-    Id PushFlowStack(Operation) {
-        UNREACHABLE();
+    Id PushFlowStack(Operation operation) {
+        const auto target = std::get<ImmediateNode>(*operation[0]);
+        const Id current = Emit(OpLoad(t_uint, flow_stack_top));
+        const Id next = Emit(OpIAdd(t_uint, current, Constant(t_uint, 1)));
+        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {current}));
+
+        Emit(OpStore(access, Constant(t_uint, target.GetValue())));
+        Emit(OpStore(flow_stack_top, next));
+        return {};
     }
 
     Id PopFlowStack(Operation) {
-        UNREACHABLE();
+        const Id current = Emit(OpLoad(t_uint, flow_stack_top));
+        const Id previous = Emit(OpISub(t_uint, current, Constant(t_uint, 1)));
+        const Id access = Emit(OpAccessChain(t_func_uint, flow_stack, {current}));
+        const Id target = Emit(OpLoad(t_uint, access));
+
+        std::vector<Sirit::Literal> literals;
+        std::vector<Id> branch_labels;
+
+        // FIXME(Rodrigo): Drop the first exception and use a loop like in GLSL
+        bool first = true;
+        for (const auto& pairs : labels) {
+            if (first) {
+                first = false;
+                continue;
+            }
+            literals.push_back(pairs.first);
+            branch_labels.push_back(pairs.second);
+        }
+
+        Emit(OpStore(flow_stack_top, previous));
+
+        const Id true_label = OpLabel();
+        const Id skip_label = OpLabel();
+        Emit(OpBranchConditional(v_true, true_label, skip_label, 1, 0));
+        Emit(true_label);
+        Emit(OpSwitch(target, end_label, literals, branch_labels));
+
+        Emit(skip_label);
+        return {};
     }
 
     Id Exit(Operation operation) {
@@ -1079,6 +1110,8 @@ private:
     const Id t_prv_bool = Name(OpTypePointer(spv::StorageClass::Private, t_bool), "prv_bool");
     const Id t_prv_float = Name(OpTypePointer(spv::StorageClass::Private, t_float), "prv_float");
 
+    const Id t_func_uint = Name(OpTypePointer(spv::StorageClass::Function, t_uint), "func_uint");
+
     const Id t_in_float = Name(OpTypePointer(spv::StorageClass::Input, t_float), "in_float");
     const Id t_in_float4 = Name(OpTypePointer(spv::StorageClass::Input, t_float4), "in_float4");
 
@@ -1123,9 +1156,9 @@ private:
     std::map<u32, u32> samplers_binding_map;
 
     Id execute_function{};
-    Id jmp_to{};
     Id flow_stack_top{};
     Id flow_stack{};
+    Id end_label{};
     std::map<u32, Id> labels;
 };
 
