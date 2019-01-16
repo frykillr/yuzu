@@ -33,6 +33,10 @@
 #include "video_core/renderer_opengl/gl_state.h"
 #include "video_core/renderer_opengl/gl_stream_buffer.h"
 
+namespace Core {
+class System;
+}
+
 namespace Core::Frontend {
 class EmuWindow;
 }
@@ -45,7 +49,8 @@ struct FramebufferCacheKey;
 
 class RasterizerOpenGL : public VideoCore::RasterizerInterface {
 public:
-    explicit RasterizerOpenGL(Core::Frontend::EmuWindow& renderer, ScreenInfo& info);
+    explicit RasterizerOpenGL(Core::Frontend::EmuWindow& window, Core::System& system,
+                              ScreenInfo& info);
     ~RasterizerOpenGL() override;
 
     void DrawArrays() override;
@@ -61,6 +66,7 @@ public:
                            u32 pixel_stride) override;
     bool AccelerateDrawBatch(bool is_indexed) override;
     void UpdatePagesCachedCount(Tegra::GPUVAddr addr, u64 size, int delta) override;
+    void LoadDiskResources() override;
 
     /// Maximum supported size that a constbuffer can have in bytes.
     static constexpr std::size_t MaxConstbufferSize = 0x10000;
@@ -110,25 +116,18 @@ private:
                                bool using_depth_fb = true, bool preserve_contents = true,
                                std::optional<std::size_t> single_color_target = {});
 
-    /**
-     * Configures the current constbuffers to use for the draw command.
-     * @param stage The shader stage to configure buffers for.
-     * @param shader The shader object that contains the specified stage.
-     * @param current_bindpoint The offset at which to start counting new buffer bindpoints.
-     * @returns The next available bindpoint for use in the next shader stage.
-     */
-    u32 SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, Shader& shader,
-                          GLenum primitive_mode, u32 current_bindpoint);
+    /// Configures the current constbuffers to use for the draw command.
+    void SetupConstBuffers(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, const Shader& shader,
+                           GLuint program_handle, BaseBindings base_bindings);
 
-    /**
-     * Configures the current textures to use for the draw command.
-     * @param stage The shader stage to configure textures for.
-     * @param shader The shader object that contains the specified stage.
-     * @param current_unit The offset at which to start counting unused texture units.
-     * @returns The next available bindpoint for use in the next shader stage.
-     */
-    u32 SetupTextures(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, Shader& shader,
-                      GLenum primitive_mode, u32 current_unit);
+    /// Configures the current global memory entries to use for the draw command.
+    void SetupGlobalRegions(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage,
+                            const Shader& shader, GLenum primitive_mode,
+                            BaseBindings base_bindings);
+
+    /// Configures the current textures to use for the draw command.
+    void SetupTextures(Tegra::Engines::Maxwell3D::Regs::ShaderStage stage, const Shader& shader,
+                       GLuint program_handle, BaseBindings base_bindings);
 
     /// Syncs the viewport and depth range to match the guest state
     void SyncViewport(OpenGLState& current_state);
